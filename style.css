@@ -76,3 +76,5 @@
 @media(max-width:560px){.progress-cards.progress-three{grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}.progress-cards.progress-three .progress-tile{padding:11px 7px}.progress-cards.progress-three .progress-tile strong{font-size:25px}.progress-cards.progress-three .progress-tile span{font-size:12px}}
 
 .keyboard-hint{font-size:11px;line-height:1.35;text-align:center;color:#71857b;margin:10px 0 0;}
+
+.app-version-footer{text-align:center;margin:24px 0 12px;color:#71847b;font-size:12px}.app-version-footer span{white-space:nowrap}
