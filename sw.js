@@ -1,5 +1,5 @@
-const CACHE='slova-static-v23-keyboard-diff';
-const ASSETS=['./','./index.html','./style.css?v=23','./app.js?v=23','./engine.mjs?v=23','./manifest.webmanifest','./icon.svg','./config.js'];
+const CACHE='slova-static-v25-cloud';
+const ASSETS=['./','./index.html','./style.css?v=24','./app.js?v=24','./engine.mjs?v=24','./manifest.webmanifest','./icon.svg','./apple-touch-icon.png','./config.js'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)));self.skipWaiting()});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('slova-static-')&&k!==CACHE).map(k=>caches.delete(k)))));self.clients.claim()});
 self.addEventListener('fetch',e=>{const u=new URL(e.request.url);if(u.origin!==self.location.origin||e.request.method!=='GET')return;
