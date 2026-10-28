@@ -1,5 +1,6 @@
-import {parseCSV,toWords,parseSheetUrl,recordRating,createSession,nextInSession,rateInSession,dueCounts,compareLetters,recoverLegacyProgress,localDayKey,isDueOnCalendarDay,scheduledReviews,todayTrainingStats,dailyRatingStats} from './engine.mjs?v=26';
-import {readApiResponse} from './cloud-api.mjs?v=26';
+import {parseCSV,toWords,parseSheetUrl,recordRating,createSession,nextInSession,rateInSession,dueCounts,compareLetters,recoverLegacyProgress,localDayKey,isDueOnCalendarDay,scheduledReviews,todayTrainingStats,dailyRatingStats} from './engine.mjs?v=27';
+import {readApiResponse} from './cloud-api.mjs?v=27';
+import {mergeReviewMaps,mergeHistoryEvents as mergeHistoryEventsCore} from './sync-merge.mjs?v=27';
 const $=id=>document.getElementById(id), cfg=window.APP_CONFIG||{};
 const APP_VERSION='0.26.0';
 async function fetchPublishedVersion(){
@@ -32,8 +33,24 @@ const DEMO=[['Русский','Испанский'],['дом','casa'],['сего
 let refreshTimer;
 const state={words:[],progress:{},sheet:'',range:'',reviewMode:'practice',session:null,accessToken:null,user:null,supabaseSession:null,googleToken:null,source:'',saving:null,history:[],legacy:null,openedAt:Date.now()};
 const hasBackend=!!(cfg.supabaseUrl&&cfg.supabaseAnonKey);
+let cloudLoading=false;
 const jsonHeaders=()=>({'apikey':cfg.supabaseAnonKey,'Content-Type':'application/json',...(state.accessToken?{'Authorization':`Bearer ${state.accessToken}`}:{})});
 const localKey=()=>`${KEY}:${state.user?.id||'guest'}`;
+const protectedKey=uid=>`${KEY}:verified-cloud:${uid}`;
+const mergeHistoryEvents=(oldEvents,newEvents)=>mergeHistoryEventsCore(oldEvents,newEvents,eventUUID);
+function saveVerifiedCloud(){
+  if(!state.user?.id)return;
+  try{const key=protectedKey(state.user.id);const previous=JSON.parse(localStorage.getItem(key)||'{}');
+    localStorage.setItem(key,JSON.stringify({progress:mergeReviewMaps(previous.progress,state.progress),history:mergeHistoryEvents(previous.history,state.history)}));
+  }catch(e){console.warn('Verified cloud cache unavailable',e);}
+}
+function restoreVerifiedCloud(){
+  if(!state.user?.id)return;
+  try{const previous=JSON.parse(localStorage.getItem(protectedKey(state.user.id))||'{}');
+    state.progress=mergeReviewMaps(state.progress,previous.progress);
+    state.history=mergeHistoryEvents(state.history,previous.history);
+  }catch(e){console.warn('Verified cloud cache unavailable',e);}
+}
 const storage=()=>{try{return JSON.parse(localStorage.getItem(localKey())||'{}')}catch{return {}}};
 function saveLocal(){try{localStorage.setItem(localKey(),JSON.stringify({progress:state.progress,sheet:state.sheet,range:state.range,reviewMode:state.reviewMode,source:state.source,words:state.words,history:state.history,legacy:state.legacy}));}catch(e){console.warn('Local save failed',e);}}
 function loadLocal(){const s=storage();state.progress=s.progress||{};state.sheet=s.sheet||cfg.defaultSheetUrl||'';state.range=s.range||'';state.reviewMode=s.reviewMode||'practice';state.source=s.source||'';state.words=s.words||[];state.history=Array.isArray(s.history)?s.history:[];
@@ -101,7 +118,7 @@ document.addEventListener('keydown',e=>{
  if(!$('reveal').classList.contains('hidden'))$('reveal').click();
  else if(!$('revealed-area').classList.contains('hidden'))$('rate-easy').click();
 });
-async function rate(rating){const s=state.session;if(!s?.current)return;const result=rateInSession(s,rating);if(result.save)state.progress[result.id]=recordRating(state.progress[result.id],rating);state.history.push({at:Date.now(),id:result.id,rating,extra:!result.save});saveLocal();renderStudy();await syncProgress(result.id);}
+async function rate(rating){if(cloudLoading)return;const s=state.session;if(!s?.current)return;const result=rateInSession(s,rating);if(result.save)state.progress[result.id]=recordRating(state.progress[result.id],rating);state.history.push({at:Date.now(),id:result.id,rating,extra:!result.save});saveLocal();renderStudy();await syncProgress(result.id);}
 $('rate-again').onclick=()=>rate('again');$('rate-hard').onclick=()=>rate('hard');$('rate-easy').onclick=()=>rate('easy');
 function renderHistory(){
  renderStats();
@@ -191,7 +208,7 @@ function authorizeGoogle(){if(!cfg.googleOAuthClientId){note('sheet-message','В
 $('google-sheet-auth').onclick=authorizeGoogle;
 function download(name,data){const blob=new Blob([data],{type:'application/json;charset=utf-8'});const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),500);}
 $('export-data').onclick=()=>download('slova-progress.json',JSON.stringify({version:1,progress:state.progress,history:state.history,legacy:state.legacy,sheet:state.sheet,range:state.range},null,2));
-$('import-data').onchange=async e=>{const f=e.target.files?.[0];if(!f)return;try{const data=JSON.parse(await f.text());if(data.version!==1||typeof data.progress!=='object'||!data.progress||Array.isArray(data.progress))throw new Error('Неподдерживаемый формат.');state.progress=data.progress;state.history=Array.isArray(data.history)?data.history:[];state.legacy=data.legacy||recoverLegacyProgress(state.progress,state.history);saveLocal();beginNew();note('import-message','Прогресс импортирован локально.');if(state.user)await syncAll();}catch(err){note('import-message',`Ошибка импорта: ${err.message}`);}e.target.value='';};
+$('import-data').onchange=async e=>{const f=e.target.files?.[0];if(!f)return;try{const data=JSON.parse(await f.text());if(data.version!==1||typeof data.progress!=='object'||!data.progress||Array.isArray(data.progress))throw new Error('Неподдерживаемый формат.');state.progress=mergeReviewMaps(state.progress,data.progress);state.history=mergeHistoryEvents(state.history,Array.isArray(data.history)?data.history:[]);state.legacy=data.legacy||recoverLegacyProgress(state.progress,state.history);saveLocal();beginNew();note('import-message','Прогресс импортирован локально.');if(state.user)await syncAll();}catch(err){note('import-message',`Ошибка импорта: ${err.message}`);}e.target.value='';};
 // Supabase Auth + REST. Row-level security in schema.sql protects each user's rows.
 async function api(path,options={}) {
   if(!hasBackend)throw new Error('Supabase пока не настроен.');
@@ -209,7 +226,17 @@ async function receiveSession(session){
   $('logout').classList.toggle('hidden',!state.user);
   clearTimeout(refreshTimer);
   if(session?.expires_at)refreshTimer=setTimeout(()=>refreshSession(),Math.max(30000,session.expires_at*1000-Date.now()-60000));
-  if(oldUser!==state.user?.id){loadLocal();if(state.user)await loadCloud();}
+  if(oldUser!==state.user?.id){
+    // Changing account must not replace an already loaded cloud snapshot with a tiny cache.
+    const current=state.progress,previousHistory=state.history;
+    loadLocal();
+    if(state.user){
+      if(oldUser===state.user.id){state.progress=mergeReviewMaps(current,state.progress);state.history=mergeHistoryEvents(previousHistory,state.history);}
+      restoreVerifiedCloud();
+      saveLocal();
+      await loadCloud();
+    }
+  }
   renderSettings();renderStudy();renderHistory();
 }
 async function refreshSession(){
@@ -259,6 +286,7 @@ function eventUUID(x){
 }
 async function loadCloud({throwOnError=false}={}){
   if(!state.user)return;
+  cloudLoading=true;
   try{
     const uid=encodeURIComponent(state.user.id);
     const [rows,events]=await Promise.all([
@@ -276,9 +304,10 @@ async function loadCloud({throwOnError=false}={}){
     const seen=new Set(state.history.map(eventUUID));
     for(const e of events||[]){const entry={id:e.word_id,at:Date.parse(e.answered_at),rating:e.rating,extra:e.extra};if(Number.isFinite(entry.at)&&!seen.has(e.event_id)){state.history.push(entry);seen.add(e.event_id);}}
     state.history.sort((a,b)=>a.at-b.at);
+    saveVerifiedCloud();
     saveLocal();beginNew();renderHistory();
-    await syncEntries(localNewer,[]);
-  }catch(e){console.warn('Cloud load failed:',e);$('study-notice').textContent=`Облачная синхронизация недоступна: ${e.message}. Локальные ответы сохранены.`;$('study-notice').classList.remove('hidden');if(throwOnError)throw e;}
+    await syncEntries(localNewer,[]);saveVerifiedCloud();
+  }catch(e){console.warn('Cloud load failed:',e);$('study-notice').textContent=`Облачная синхронизация недоступна: ${e.message}. Локальные ответы сохранены.`;$('study-notice').classList.remove('hidden');if(throwOnError)throw e;}finally{cloudLoading=false;}
 }
 async function syncEntries(progress,events){
   if(!state.user)return;
@@ -295,13 +324,13 @@ async function syncEntries(progress,events){
 async function saveProfile(){} // Google Sheet remains configured locally per device.
 async function syncProgress(id){
   if(!state.user)return;
-  try{await syncEntries(state.progress[id]?{[id]:state.progress[id]}:{},state.history.slice(-1));}
+  try{await syncEntries(state.progress[id]?{[id]:state.progress[id]}:{},state.history.slice(-1));saveVerifiedCloud();}
   catch(e){console.warn('Cloud sync failed:',e);$('study-notice').textContent='Облачная запись временно недоступна. Локальная копия сохранена.';$('study-notice').classList.remove('hidden');}
 }
 async function syncAll(){
   if(!state.user)return;
   // Always merge cloud before importing older backups; never overwrite newer values.
-  try{await loadCloud({throwOnError:true});await syncEntries(state.progress,state.history);note('import-message','Прогресс и история синхронизированы с облаком.');}
+  try{await loadCloud({throwOnError:true});await syncEntries(state.progress,state.history);saveVerifiedCloud();note('import-message','Прогресс и история синхронизированы с облаком.');}
   catch(e){note('import-message',`Локальный импорт сохранён, ошибка синхронизации: ${e.message}`);}
 }
 async function init(){loadLocal();renderSettings();renderStudy();if(state.sheet&&state.source!=='sheet')refreshSheet();if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js').catch(console.warn);

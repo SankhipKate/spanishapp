@@ -10,7 +10,7 @@
   <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-  <link rel="stylesheet" href="./style.css?v=26" />
+  <link rel="stylesheet" href="./style.css?v=27" />
   <title>Слова — тренажёр переводов</title>
 </head>
 <body>
@@ -76,14 +76,14 @@
       <section id="page-words" class="page"><div class="page-top"><div><h1>Словарь</h1><p class="muted">Данные берутся из Google Таблицы.</p></div><button id="refresh-words" class="secondary">Обновить</button></div><div class="panel"><input id="word-search" placeholder="Поиск по словам…" aria-label="Поиск по словам"/><div class="table-wrap"><table><thead><tr><th>Русский</th><th>Испанский</th><th>Статус</th></tr></thead><tbody id="words-table"></tbody></table></div><div id="words-empty" class="muted table-empty">Пока нет слов.</div></div></section>
       <section id="page-settings" class="page"><h1>Настройки</h1><div class="panel form-panel"><h2>Google Таблица</h2><p class="muted">Вставь ссылку на таблицу. Поддерживаются столбцы <code>A — Дубликаты</code> (испанский) и <code>B — Перевод</code> (русский), а также заголовки «Русский» и «Испанский». Из нескольких форм через / берётся только первая. Необязательный столбец <code>ID</code> сохранит историю при редактировании переводов.</p><label for="sheet-url">Ссылка на Google Таблицу</label><input id="sheet-url" type="url" placeholder="https://docs.google.com/spreadsheets/d/…"/><label for="sheet-range">Название листа (для закрытых таблиц)</label><input id="sheet-range" placeholder="Лист1"/><div class="button-row"><button id="save-sheet" class="primary">Подключить / обновить</button><button id="google-sheet-auth" class="secondary">Разрешить доступ Google</button></div><div id="sheet-message" class="inline-msg" role="status"></div><p class="muted tiny">Открытая таблица доступна по ссылке. Для закрытой таблицы требуется разрешение Google, а владельцу приложения — настройка OAuth Client ID.</p></div>
         <div class="panel form-panel"><h2>Тренировка</h2><label for="review-mode">Когда заканчиваются новые слова</label><select id="review-mode"><option value="practice">Продолжать со знакомыми словами (дополнительная практика)</option><option value="stop">Сообщить, что слова закончились</option></select><p class="muted tiny">При нажатии «Не знаю» слово обязательно возвращается в текущей тренировке. Дополнительная практика не меняет расписание повторений.</p></div>
-        <div class="panel form-panel"><h2>Обновления</h2><p class="muted">Установлена версия <strong id="settings-app-version">0.26.0</strong></p><button id="check-app-update" class="secondary" type="button">Проверить обновления</button><div id="update-message" class="inline-msg" role="status"></div></div>
+        <div class="panel form-panel"><h2>Обновления</h2><p class="muted">Установлена версия <strong id="settings-app-version">0.27.0</strong></p><button id="check-app-update" class="secondary" type="button">Проверить обновления</button><div id="update-message" class="inline-msg" role="status"></div></div>
         <div class="panel form-panel"><h2>Резервная копия</h2><div class="button-row"><button id="export-data" class="secondary">Экспорт прогресса</button><label for="import-data" class="secondary file-label">Импорт прогресса</label><input type="file" id="import-data" accept="application/json,.json" hidden /></div><div id="import-message" class="inline-msg"></div></div>
       </section>
     </main>
-    <footer class="app-version-footer"><span id="app-version">SpanishApp · v0.26.0</span></footer>
+    <footer class="app-version-footer"><span id="app-version">SpanishApp · v0.27.0</span></footer>
   </div>
   <dialog id="login-dialog"><form method="dialog" class="dialog-inner"><div class="dialog-header"><h2>Вход</h2><button value="cancel" class="close" aria-label="Закрыть">×</button></div><p class="muted">Войди через Google для синхронизации между устройствами. Существующую резервную копию можно импортировать после входа.</p><button id="google-login" type="button" class="primary full">Войти через Google</button><p class="muted">Или войди по электронной почте:</p><label for="login-email">Email</label><input id="login-email" type="email" placeholder="name@example.com"/><button id="send-login" type="button" class="primary full">Отправить ссылку для входа</button><p id="login-message" class="inline-msg"></p><button id="logout" type="button" class="text-button hidden">Выйти из аккаунта</button></form></dialog>
   <script src="./config.js"></script>
-  <script type="module" src="./app.js?v=26"></script>
+  <script type="module" src="./app.js?v=27"></script>
 </body>
 </html>
