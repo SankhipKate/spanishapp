@@ -16,3 +16,6 @@ Public keys in `config.js` are intended for use from the browser. Never place a 
 ## v25: исправление пустого ответа REST
 
 Операции INSERT/UPSERT в Supabase по умолчанию могут возвращать HTTP 201 с пустым телом. Теперь это считается успешной записью. При ошибке импорта локальная копия остаётся сохранённой, а ошибка облака показывается отдельно. После публикации v25 на Mac открой опубликованный сайт в том же браузере, где импортирован JSON, и повторно импортируй резервную копию, чтобы повторить облачную отправку. Проверить облачные записи можно в Supabase Table Editor (`word_progress` и `review_history`).
+
+## v0.27.0: safe sync
+On login, preserve previously verified cloud data in a separate per-user browser backup. Merge by word update timestamp, never replace the full learned-word set with a smaller local snapshot. Import merges rather than replaces.

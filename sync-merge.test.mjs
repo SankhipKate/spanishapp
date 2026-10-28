@@ -1,0 +1,4 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {mergeReviewMaps,mergeHistoryEvents} from './sync-merge.mjs';
+test('cloud state cannot be replaced by an almost empty local state',()=>{const cloud=Object.fromEntries(Array.from({length:128},(_,i)=>[String(i),{updated:100,due:1000}]));const tiny={'1':{updated:101,due:2000},'129':{updated:102,due:3000}};const got=mergeReviewMaps(cloud,tiny);assert.equal(Object.keys(got).length,129);assert.equal(got['2'].updated,100);assert.equal(got['1'].updated,101);});
+test('older backup never overwrites newer word rating',()=>{assert.equal(mergeReviewMaps({a:{updated:200}},{a:{updated:100}}).a.updated,200);});
+test('history deduplicates attempts by stable event ID',()=>{const key=x=>`${x.id}:${x.at}:${x.rating}`;const h=[{id:'a',at:10,rating:'easy'}];assert.equal(mergeHistoryEvents(h,h,key).length,1);});
