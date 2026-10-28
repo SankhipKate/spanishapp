@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#126e53" />
+  <meta name="description" content="Тренажёр интервального повторения со словарём из Google Таблиц" />
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="./style.css?v=23" />
+  <title>Слова — тренажёр переводов</title>
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand"><div class="logo" aria-hidden="true">á</div><div><strong>Слова</strong><small>Русский → испанский</small></div></div>
+      <div class="top-actions"><span id="account-status" class="status">Гостевой режим</span><button id="account-button" class="text-button">Войти</button></div>
+    </header>
+    <nav class="tabs" aria-label="Разделы">
+      <button data-page="study" class="active">Тренировка</button>
+      <button data-page="words">Словарь</button>
+      <button data-page="history">Прогресс</button>
+      <button data-page="settings">Настройки</button>
+    </nav>
+    <main>
+      <section id="page-study" class="page active">
+        <div class="page-top"><div><h1>Тренировка</h1><p class="muted">Напиши перевод и оцени свой ответ.</p></div></div>
+        <div id="study-notice" class="notice hidden" role="status"></div>
+        <div id="study-empty" class="panel empty"><h2>Подключи словарь</h2><p>Добавь ссылку на Google Таблицу в настройках или попробуй демонстрационный набор.</p><div class="button-row"><button id="go-settings" class="primary">Подключить таблицу</button><button id="load-demo" class="secondary">Попробовать пример</button></div></div>
+        <div id="study-card" class="panel quiz hidden">
+          
+          <div class="quiz-word" id="prompt-word"></div>
+          <div id="answer-input-wrap"><label class="sr-only" for="typed-answer">Твой перевод (необязательно)</label><input id="typed-answer" type="text" placeholder="Перевод" autocomplete="off" spellcheck="false" autocapitalize="off" /></div>
+          <div id="answer-stage">
+          <button id="reveal" class="primary full">Показать ответ</button>
+          <div id="revealed-area" class="hidden"><div class="answer-box" id="answer-box"><div id="answer-word" class="answer-word"></div><div id="answer-compare" class="compare-answer hidden"></div></div>
+            <div class="rating-grid"><button id="rate-again" class="rating again">Не знаю</button><button id="rate-hard" class="rating hard">Сомневаюсь</button><button id="rate-easy" class="rating easy">Знаю</button></div>
+          </div>
+          <p class="keyboard-hint">Enter — показать ответ · Enter после ответа — «Знаю»</p>
+          </div>
+        </div>
+        <div class="stats study-stats" id="stats"><div class="stat"><strong id="study-reviewed">0</strong><span>Пройдено сегодня</span></div><div class="stat"><strong id="study-easy">0</strong><span>Знаю</span></div><div class="stat"><strong id="study-hard">0</strong><span>Сомневаюсь</span></div><div class="stat"><strong id="study-again">0</strong><span>Не знаю</span></div></div>
+      </section>
+      <section id="page-history" class="page">
+        <h1>Прогресс</h1>
+        <section class="progress-section" aria-label="Словарь">
+          <h2>Словарь</h2>
+          <div class="progress-cards progress-three">
+            <div class="progress-tile"><strong id="total-words">0</strong><span>Всего</span></div>
+            <div class="progress-tile"><strong id="p-learned">0</strong><span>Изучено</span></div>
+            <div class="progress-tile"><strong id="new-words">0</strong><span>Новых</span></div>
+          </div>
+          <div class="study-progress-track" role="progressbar" aria-label="Доля изученных слов" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="learned-progress-bar"><div id="learned-progress-fill"></div></div>
+          <p class="muted tiny" id="learned-progress-caption"></p>
+        </section>
+        <section class="progress-section" aria-label="Результаты изучения">
+          <h2>Результаты изучения</h2>
+          <div class="progress-cards progress-three">
+            <div class="progress-tile"><strong id="p-easy">0</strong><span>Знаю</span></div>
+            <div class="progress-tile"><strong id="p-hard">0</strong><span>Сомневаюсь</span></div>
+            <div class="progress-tile"><strong id="p-again">0</strong><span>Не знаю</span></div>
+          </div>
+        </section>
+        <div class="panel"><h2>Когда повторять</h2><div id="schedule-list"></div></div>
+        <div class="panel review-rules" aria-label="Как работают оценки">
+          <h2>Как работают оценки</h2>
+          <div class="rule-line"><strong>Знаю</strong><span>Первое повторение через 2 дня. Затем интервал увеличивается в зависимости от предыдущих ответов.</span></div>
+          <div class="rule-line"><strong>Сомневаюсь</strong><span>Первое повторение через 1 день. При следующих оценках интервал зависит от предыдущих ответов.</span></div>
+          <div class="rule-line"><strong>Не знаю</strong><span>Слово появится ещё раз через 5 других ответов в этой же тренировке.</span></div>
+        </div>
+        <div class="panel"><div class="history-heading"><h2>История занятий</h2><span class="history-days" id="p-days">0 дней занятий</span></div><div id="history-list"></div><p class="muted tiny" id="history-note"></p></div>
+      </section>
+      <section id="page-words" class="page"><div class="page-top"><div><h1>Словарь</h1><p class="muted">Данные берутся из Google Таблицы.</p></div><button id="refresh-words" class="secondary">Обновить</button></div><div class="panel"><input id="word-search" placeholder="Поиск по словам…" aria-label="Поиск по словам"/><div class="table-wrap"><table><thead><tr><th>Русский</th><th>Испанский</th><th>Статус</th></tr></thead><tbody id="words-table"></tbody></table></div><div id="words-empty" class="muted table-empty">Пока нет слов.</div></div></section>
+      <section id="page-settings" class="page"><h1>Настройки</h1><div class="panel form-panel"><h2>Google Таблица</h2><p class="muted">Вставь ссылку на таблицу. Поддерживаются столбцы <code>A — Дубликаты</code> (испанский) и <code>B — Перевод</code> (русский), а также заголовки «Русский» и «Испанский». Из нескольких форм через / берётся только первая. Необязательный столбец <code>ID</code> сохранит историю при редактировании переводов.</p><label for="sheet-url">Ссылка на Google Таблицу</label><input id="sheet-url" type="url" placeholder="https://docs.google.com/spreadsheets/d/…"/><label for="sheet-range">Название листа (для закрытых таблиц)</label><input id="sheet-range" placeholder="Лист1"/><div class="button-row"><button id="save-sheet" class="primary">Подключить / обновить</button><button id="google-sheet-auth" class="secondary">Разрешить доступ Google</button></div><div id="sheet-message" class="inline-msg" role="status"></div><p class="muted tiny">Открытая таблица доступна по ссылке. Для закрытой таблицы требуется разрешение Google, а владельцу приложения — настройка OAuth Client ID.</p></div>
+        <div class="panel form-panel"><h2>Тренировка</h2><label for="review-mode">Когда заканчиваются новые слова</label><select id="review-mode"><option value="practice">Продолжать со знакомыми словами (дополнительная практика)</option><option value="stop">Сообщить, что слова закончились</option></select><p class="muted tiny">При нажатии «Не знаю» слово обязательно возвращается в текущей тренировке. Дополнительная практика не меняет расписание повторений.</p></div>
+        <div class="panel form-panel"><h2>Резервная копия</h2><div class="button-row"><button id="export-data" class="secondary">Экспорт прогресса</button><label for="import-data" class="secondary file-label">Импорт прогресса</label><input type="file" id="import-data" accept="application/json,.json" hidden /></div><div id="import-message" class="inline-msg"></div></div>
+      </section>
+    </main>
+  </div>
+  <dialog id="login-dialog"><form method="dialog" class="dialog-inner"><div class="dialog-header"><h2>Вход</h2><button value="cancel" class="close" aria-label="Закрыть">×</button></div><p class="muted">Войди по email, чтобы синхронизировать прогресс между устройствами. Это доступно после настройки Supabase владельцем приложения.</p><label for="login-email">Email</label><input id="login-email" type="email" placeholder="name@example.com"/><button id="send-login" type="button" class="primary full">Отправить ссылку для входа</button><p id="login-message" class="inline-msg"></p><button id="logout" type="button" class="text-button hidden">Выйти из аккаунта</button></form></dialog>
+  <script src="./config.js"></script>
+  <script type="module" src="./app.js?v=23"></script>
+</body>
+</html>
