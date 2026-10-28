@@ -1,6 +1,32 @@
-import {parseCSV,toWords,parseSheetUrl,recordRating,createSession,nextInSession,rateInSession,dueCounts,compareLetters,recoverLegacyProgress,localDayKey,isDueOnCalendarDay,scheduledReviews,todayTrainingStats,dailyRatingStats} from './engine.mjs?v=25';
-import {readApiResponse} from './cloud-api.mjs?v=25';
+import {parseCSV,toWords,parseSheetUrl,recordRating,createSession,nextInSession,rateInSession,dueCounts,compareLetters,recoverLegacyProgress,localDayKey,isDueOnCalendarDay,scheduledReviews,todayTrainingStats,dailyRatingStats} from './engine.mjs?v=26';
+import {readApiResponse} from './cloud-api.mjs?v=26';
 const $=id=>document.getElementById(id), cfg=window.APP_CONFIG||{};
+const APP_VERSION='0.26.0';
+async function fetchPublishedVersion(){
+ const response=await fetch(`./version.json?check=${Date.now()}`,{cache:'no-store'});
+ if(!response.ok)throw new Error(`HTTP ${response.status}`);
+ const data=await response.json();
+ if(!/^\d+\.\d+\.\d+$/.test(data.version||''))throw new Error('Некорректная версия');
+ return data.version;
+}
+async function checkAppUpdate(){
+ const output=$('update-message');output.textContent='Проверяю обновления…';
+ try{
+  if('serviceWorker' in navigator){const registration=await navigator.serviceWorker.getRegistration();if(registration)await registration.update();}
+  const current=await fetchPublishedVersion();
+  if(current===APP_VERSION){output.textContent=`Установлена актуальная версия ${APP_VERSION}.`;return;}
+  output.replaceChildren();
+  const label=document.createElement('span');label.textContent=`Доступна версия ${current}. `;
+  const button=document.createElement('button');button.type='button';button.className='secondary';button.textContent='Обновить сейчас';
+  button.addEventListener('click',async()=>{try{
+    if('serviceWorker' in navigator){const registration=await navigator.serviceWorker.getRegistration();if(registration){await registration.update();if(registration.waiting)registration.waiting.postMessage({type:'SKIP_WAITING'});}}
+    location.reload();
+  }catch(e){output.textContent=`Не удалось обновить: ${e.message}`;}});
+  output.append(label,button);
+ }catch(e){output.textContent=`Проверка не удалась: ${e.message}`;}
+}
+$('check-app-update').addEventListener('click',checkAppUpdate);
+
 const KEY='palabras:v1';
 const DEMO=[['Русский','Испанский'],['дом','casa'],['сегодня','hoy'],['говорить','hablar'],['работать','trabajar'],['красивый','lindo, bonito'],['школа','escuela'],['вчера','ayer'],['утро','mañana'],['вода','agua'],['читать','leer']];
 let refreshTimer;
