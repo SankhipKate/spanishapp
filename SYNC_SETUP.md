@@ -11,3 +11,8 @@ The existing Supabase schema expected by this version is `public.word_progress(u
 Limitations: Supabase REST requests aren't transactional across all words and history; use the original export as a backup. Concurrent edits to the same word within seconds on multiple devices are not conflict-free. Cross-device cloud history is read with Supabase's default page limit and needs pagination for very large journals. Google Sheet URL is locally configured and the same default URL is bundled with the app.
 
 Public keys in `config.js` are intended for use from the browser. Never place a service role key or Google OAuth client secret in GitHub.
+
+
+## v25: исправление пустого ответа REST
+
+Операции INSERT/UPSERT в Supabase по умолчанию могут возвращать HTTP 201 с пустым телом. Теперь это считается успешной записью. При ошибке импорта локальная копия остаётся сохранённой, а ошибка облака показывается отдельно. После публикации v25 на Mac открой опубликованный сайт в том же браузере, где импортирован JSON, и повторно импортируй резервную копию, чтобы повторить облачную отправку. Проверить облачные записи можно в Supabase Table Editor (`word_progress` и `review_history`).

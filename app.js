@@ -1,4 +1,5 @@
-import {parseCSV,toWords,parseSheetUrl,recordRating,createSession,nextInSession,rateInSession,dueCounts,compareLetters,recoverLegacyProgress,localDayKey,isDueOnCalendarDay,scheduledReviews,todayTrainingStats,dailyRatingStats} from './engine.mjs?v=24';
+import {parseCSV,toWords,parseSheetUrl,recordRating,createSession,nextInSession,rateInSession,dueCounts,compareLetters,recoverLegacyProgress,localDayKey,isDueOnCalendarDay,scheduledReviews,todayTrainingStats,dailyRatingStats} from './engine.mjs?v=25';
+import {readApiResponse} from './cloud-api.mjs?v=25';
 const $=id=>document.getElementById(id), cfg=window.APP_CONFIG||{};
 const KEY='palabras:v1';
 const DEMO=[['Русский','Испанский'],['дом','casa'],['сегодня','hoy'],['говорить','hablar'],['работать','trabajar'],['красивый','lindo, bonito'],['школа','escuela'],['вчера','ayer'],['утро','mañana'],['вода','agua'],['читать','leer']];
@@ -166,7 +167,13 @@ function download(name,data){const blob=new Blob([data],{type:'application/json;
 $('export-data').onclick=()=>download('slova-progress.json',JSON.stringify({version:1,progress:state.progress,history:state.history,legacy:state.legacy,sheet:state.sheet,range:state.range},null,2));
 $('import-data').onchange=async e=>{const f=e.target.files?.[0];if(!f)return;try{const data=JSON.parse(await f.text());if(data.version!==1||typeof data.progress!=='object'||!data.progress||Array.isArray(data.progress))throw new Error('Неподдерживаемый формат.');state.progress=data.progress;state.history=Array.isArray(data.history)?data.history:[];state.legacy=data.legacy||recoverLegacyProgress(state.progress,state.history);saveLocal();beginNew();note('import-message','Прогресс импортирован локально.');if(state.user)await syncAll();}catch(err){note('import-message',`Ошибка импорта: ${err.message}`);}e.target.value='';};
 // Supabase Auth + REST. Row-level security in schema.sql protects each user's rows.
-async function api(path,options={}){if(!hasBackend)throw new Error('Supabase пока не настроен.');const r=await fetch(`${cfg.supabaseUrl.replace(/\/$/,'')}${path}`,{...options,headers:{...jsonHeaders(),...(options.headers||{})}});if(!r.ok){let msg;try{msg=JSON.stringify(await r.json())}catch{msg=r.statusText}throw new Error(`${r.status}: ${msg}`);}return r.status===204?null:r.json();}
+async function api(path,options={}) {
+  if(!hasBackend)throw new Error('Supabase пока не настроен.');
+  const response=await fetch(`${cfg.supabaseUrl.replace(/\/$/,'')}${path}`,{
+    ...options,headers:{...jsonHeaders(),...(options.headers||{})}
+  });
+  return readApiResponse(response);
+}
 async function receiveSession(session){
   const oldUser=state.user?.id;
   state.supabaseSession=session;state.accessToken=session?.access_token||null;state.user=session?.user||null;
@@ -224,7 +231,7 @@ function eventUUID(x){
   const full=hex(a)+hex(b)+hex(c)+hex(d);
   return `${full.slice(0,8)}-${full.slice(8,12)}-4${full.slice(13,16)}-a${full.slice(17,20)}-${full.slice(20,32)}`;
 }
-async function loadCloud(){
+async function loadCloud({throwOnError=false}={}){
   if(!state.user)return;
   try{
     const uid=encodeURIComponent(state.user.id);
@@ -245,7 +252,7 @@ async function loadCloud(){
     state.history.sort((a,b)=>a.at-b.at);
     saveLocal();beginNew();renderHistory();
     await syncEntries(localNewer,[]);
-  }catch(e){console.warn('Cloud load failed:',e);$('study-notice').textContent=`Облачная синхронизация недоступна: ${e.message}. Локальные ответы сохранены.`;$('study-notice').classList.remove('hidden');}
+  }catch(e){console.warn('Cloud load failed:',e);$('study-notice').textContent=`Облачная синхронизация недоступна: ${e.message}. Локальные ответы сохранены.`;$('study-notice').classList.remove('hidden');if(throwOnError)throw e;}
 }
 async function syncEntries(progress,events){
   if(!state.user)return;
@@ -268,7 +275,7 @@ async function syncProgress(id){
 async function syncAll(){
   if(!state.user)return;
   // Always merge cloud before importing older backups; never overwrite newer values.
-  try{await loadCloud();await syncEntries(state.progress,state.history);note('import-message','Прогресс и история синхронизированы с облаком.');}
+  try{await loadCloud({throwOnError:true});await syncEntries(state.progress,state.history);note('import-message','Прогресс и история синхронизированы с облаком.');}
   catch(e){note('import-message',`Локальный импорт сохранён, ошибка синхронизации: ${e.message}`);}
 }
 async function init(){loadLocal();renderSettings();renderStudy();if(state.sheet&&state.source!=='sheet')refreshSheet();if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js').catch(console.warn);
