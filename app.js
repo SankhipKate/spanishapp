@@ -1,7 +1,8 @@
-import {parseCSV,toWords,parseSheetUrl,recordRating,createSession,nextInSession,rateInSession,dueCounts,compareLetters,recoverLegacyProgress,localDayKey,isDueOnCalendarDay,scheduledReviews,todayTrainingStats,dailyRatingStats} from './engine.mjs?v=23';
+import {parseCSV,toWords,parseSheetUrl,recordRating,createSession,nextInSession,rateInSession,dueCounts,compareLetters,recoverLegacyProgress,localDayKey,isDueOnCalendarDay,scheduledReviews,todayTrainingStats,dailyRatingStats} from './engine.mjs?v=24';
 const $=id=>document.getElementById(id), cfg=window.APP_CONFIG||{};
 const KEY='palabras:v1';
 const DEMO=[['Русский','Испанский'],['дом','casa'],['сегодня','hoy'],['говорить','hablar'],['работать','trabajar'],['красивый','lindo, bonito'],['школа','escuela'],['вчера','ayer'],['утро','mañana'],['вода','agua'],['читать','leer']];
+let refreshTimer;
 const state={words:[],progress:{},sheet:'',range:'',reviewMode:'practice',session:null,accessToken:null,user:null,supabaseSession:null,googleToken:null,source:'',saving:null,history:[],legacy:null,openedAt:Date.now()};
 const hasBackend=!!(cfg.supabaseUrl&&cfg.supabaseAnonKey);
 const jsonHeaders=()=>({'apikey':cfg.supabaseAnonKey,'Content-Type':'application/json',...(state.accessToken?{'Authorization':`Bearer ${state.accessToken}`}:{})});
@@ -166,30 +167,112 @@ $('export-data').onclick=()=>download('slova-progress.json',JSON.stringify({vers
 $('import-data').onchange=async e=>{const f=e.target.files?.[0];if(!f)return;try{const data=JSON.parse(await f.text());if(data.version!==1||typeof data.progress!=='object'||!data.progress||Array.isArray(data.progress))throw new Error('Неподдерживаемый формат.');state.progress=data.progress;state.history=Array.isArray(data.history)?data.history:[];state.legacy=data.legacy||recoverLegacyProgress(state.progress,state.history);saveLocal();beginNew();note('import-message','Прогресс импортирован локально.');if(state.user)await syncAll();}catch(err){note('import-message',`Ошибка импорта: ${err.message}`);}e.target.value='';};
 // Supabase Auth + REST. Row-level security in schema.sql protects each user's rows.
 async function api(path,options={}){if(!hasBackend)throw new Error('Supabase пока не настроен.');const r=await fetch(`${cfg.supabaseUrl.replace(/\/$/,'')}${path}`,{...options,headers:{...jsonHeaders(),...(options.headers||{})}});if(!r.ok){let msg;try{msg=JSON.stringify(await r.json())}catch{msg=r.statusText}throw new Error(`${r.status}: ${msg}`);}return r.status===204?null:r.json();}
-let refreshTimer;
-async function receiveSession(session){state.supabaseSession=session;state.accessToken=session?.access_token||null;state.user=session?.user||null;if(session)localStorage.setItem(`${KEY}:auth`,JSON.stringify(session));else localStorage.removeItem(`${KEY}:auth`);
-  $('account-status').textContent=state.user?.email||'Гостевой режим';$('account-button').textContent=state.user?'Аккаунт':'Войти';$('logout').classList.toggle('hidden',!state.user);
-  clearTimeout(refreshTimer);if(session?.expires_in)refreshTimer=setTimeout(()=>refreshSession(),Math.max(30000,(session.expires_in-60)*1000));
-  loadLocal();if(state.user)await loadCloud();renderSettings();renderStudy();}
-async function refreshSession(){if(!state.supabaseSession?.refresh_token)return;try{const r=await api('/auth/v1/token?grant_type=refresh_token',{method:'POST',body:JSON.stringify({refresh_token:state.supabaseSession.refresh_token})});await receiveSession(r);}catch(e){console.warn('Session refresh failed:',e);}}
-async function restoreAuth(){if(!hasBackend)return;let existing;try{existing=JSON.parse(localStorage.getItem(`${KEY}:auth`)||'null')}catch{}if(existing?.refresh_token){state.supabaseSession=existing;state.accessToken=existing.access_token;if(!existing.expires_at||existing.expires_at*1000<Date.now()+60000)await refreshSession();else await receiveSession(existing);}
-  const url=new URL(location.href);if(url.searchParams.has('code')){note('login-message','Подтверждаю вход…');try{const res=await api('/auth/v1/token?grant_type=pkce',{method:'POST',body:JSON.stringify({auth_code:url.searchParams.get('code')})});await receiveSession(res);}catch(e){console.error(e);}url.searchParams.delete('code');history.replaceState({},'',url);} }
-function tokenFromHash(){const h=new URLSearchParams(location.hash.substring(1));if(h.has('access_token')){const t={access_token:h.get('access_token'),refresh_token:h.get('refresh_token'),expires_in:parseInt(h.get('expires_in')||'3600',10)};history.replaceState({},'',location.pathname+location.search);return t;}return null;}
-$('account-button').onclick=()=>{note('login-message',hasBackend?'':'Синхронизация будет доступна после настройки Supabase.');$('login-dialog').showModal();};
-$('send-login').onclick=async()=>{if(!hasBackend){note('login-message','Владелец приложения ещё не настроил Supabase.');return;}const email=$('login-email').value.trim();if(!email){note('login-message','Введи email.');return;}
-  try{await api('/auth/v1/otp',{method:'POST',body:JSON.stringify({email,create_user:true,options:{email_redirect_to:location.origin+location.pathname}})});note('login-message','Проверь почту: ссылка для входа отправлена.');}catch(e){note('login-message',`Не удалось отправить письмо: ${e.message}`);}};
+async function receiveSession(session){
+  const oldUser=state.user?.id;
+  state.supabaseSession=session;state.accessToken=session?.access_token||null;state.user=session?.user||null;
+  if(session)localStorage.setItem(`${KEY}:auth`,JSON.stringify(session));else localStorage.removeItem(`${KEY}:auth`);
+  $('account-status').textContent=state.user?.email||'Гостевой режим';
+  $('account-button').textContent=state.user?'Аккаунт':'Войти';
+  $('logout').classList.toggle('hidden',!state.user);
+  clearTimeout(refreshTimer);
+  if(session?.expires_at)refreshTimer=setTimeout(()=>refreshSession(),Math.max(30000,session.expires_at*1000-Date.now()-60000));
+  if(oldUser!==state.user?.id){loadLocal();if(state.user)await loadCloud();}
+  renderSettings();renderStudy();renderHistory();
+}
+async function refreshSession(){
+  if(!state.supabaseSession?.refresh_token)return;
+  try{const r=await api('/auth/v1/token?grant_type=refresh_token',{method:'POST',body:JSON.stringify({refresh_token:state.supabaseSession.refresh_token})});await receiveSession(r);}
+  catch(e){console.warn('Session refresh failed:',e);await receiveSession(null);}
+}
+async function restoreAuth(){
+  if(!hasBackend)return;
+  const hash=new URLSearchParams(location.hash.slice(1));
+  if(hash.has('access_token')){
+    const token=hash.get('access_token');
+    history.replaceState({},'',location.pathname+location.search);
+    try{
+      const user=await api('/auth/v1/user',{headers:{Authorization:`Bearer ${token}`}});
+      await receiveSession({access_token:token,refresh_token:hash.get('refresh_token'),expires_at:Math.floor(Date.now()/1000)+Number(hash.get('expires_in')||3600),user});
+    }catch(e){note('login-message',`Вход не завершён: ${e.message}`);}
+    return;
+  }
+  let previous=null;
+  try{previous=JSON.parse(localStorage.getItem(`${KEY}:auth`)||'null');}catch{}
+  if(previous?.refresh_token){state.supabaseSession=previous;state.accessToken=previous.access_token;
+    if((previous.expires_at||0)*1000<Date.now()+60000)await refreshSession();
+    else{try{const user=await api('/auth/v1/user');await receiveSession({...previous,user});}catch{await refreshSession();}}
+  }
+}
+$('account-button').onclick=()=>{note('login-message',hasBackend?'':'Синхронизация ещё не настроена.');$('login-dialog').showModal();};
+$('google-login').onclick=()=>{
+  if(!hasBackend){note('login-message','Синхронизация ещё не настроена.');return;}
+  const redirect=location.origin+location.pathname;
+  const url=new URL(cfg.supabaseUrl.replace(/\/$/,'')+'/auth/v1/authorize');
+  url.searchParams.set('provider','google');url.searchParams.set('redirect_to',redirect);
+  location.assign(url.toString());
+};
+$('send-login').onclick=async()=>{if(!hasBackend)return;const email=$('login-email').value.trim();if(!email)return;
+  try{await api('/auth/v1/otp',{method:'POST',body:JSON.stringify({email,create_user:true,options:{email_redirect_to:location.origin+location.pathname}})});note('login-message','Проверь почту: ссылка для входа отправлена.');}catch(e){note('login-message',`Ошибка: ${e.message}`);}};
 $('logout').onclick=async()=>{try{await api('/auth/v1/logout',{method:'POST'});}catch{}await receiveSession(null);$('login-dialog').close();};
-async function loadCloud(){try{const [settings,rows]=await Promise.all([api(`/rest/v1/profiles?user_id=eq.${encodeURIComponent(state.user.id)}&select=sheet_url,sheet_range,review_mode`),api(`/rest/v1/reviews?user_id=eq.${encodeURIComponent(state.user.id)}&select=word_id,data`)]);
-    if(settings?.length){state.sheet=settings[0].sheet_url||state.sheet;state.range=settings[0].sheet_range||state.range;state.reviewMode=settings[0].review_mode||state.reviewMode;}
-    for(const r of rows||[]){if(!state.progress[r.word_id]||r.data.updated>state.progress[r.word_id].updated)state.progress[r.word_id]=r.data;}
-    if(!state.history.length&&!state.legacy?.words)state.legacy=recoverLegacyProgress(state.progress,state.history);
-    saveLocal();if(state.sheet&&(!state.words.length||state.source!=='sheet')){state.source='sheet';await refreshSheet();}
-  }catch(e){console.warn('Cloud unavailable:',e);$('study-notice').textContent='Синхронизация временно недоступна, результаты сохраняются на устройстве.';$('study-notice').classList.remove('hidden');}}
-async function saveProfile(){if(!state.user)return;try{await api('/rest/v1/profiles?on_conflict=user_id',{method:'POST',headers:{Prefer:'resolution=merge-duplicates'},body:JSON.stringify({user_id:state.user.id,sheet_url:state.sheet,sheet_range:state.range,review_mode:state.reviewMode})});}catch(e){console.warn('Profile sync:',e);}}
-async function syncProgress(id){if(!state.user||!state.progress[id])return;try{await api('/rest/v1/reviews?on_conflict=user_id,word_id',{method:'POST',headers:{Prefer:'resolution=merge-duplicates'},body:JSON.stringify({user_id:state.user.id,word_id:id,data:state.progress[id]})});}catch(e){console.warn('Review sync:',e);$('study-notice').textContent='Сейчас нет связи с сервером. Результат сохранён на устройстве, экспорт доступен в настройках.';$('study-notice').classList.remove('hidden');}}
-async function syncAll(){for(const id of Object.keys(state.progress))await syncProgress(id);}
+const validReview=(x)=>x&&typeof x==='object'&&Number.isFinite(x.updated);
+function eventUUID(x){
+  // Event keys are deterministic across devices; no duplicate history after re-sync.
+  const value=`${x.id}|${x.at}|${x.rating}|${Boolean(x.extra)}`;
+  let a=2166136261,b=2166136261,c=2166136261,d=2166136261;
+  for(let i=0;i<value.length;i++){const code=value.charCodeAt(i);a=Math.imul(a^code,16777619);b=Math.imul(b^(code+i),16777619);c=Math.imul(c^(code*31),16777619);d=Math.imul(d^(code+97),16777619);}
+  const hex=v=>(v>>>0).toString(16).padStart(8,'0');
+  const full=hex(a)+hex(b)+hex(c)+hex(d);
+  return `${full.slice(0,8)}-${full.slice(8,12)}-4${full.slice(13,16)}-a${full.slice(17,20)}-${full.slice(20,32)}`;
+}
+async function loadCloud(){
+  if(!state.user)return;
+  try{
+    const uid=encodeURIComponent(state.user.id);
+    const [rows,events]=await Promise.all([
+      api(`/rest/v1/word_progress?user_id=eq.${uid}&select=word_id,state`),
+      api(`/rest/v1/review_history?user_id=eq.${uid}&select=event_id,word_id,rating,answered_at,extra`)
+    ]);
+    const localNewer={};
+    for(const row of rows||[]){
+      const local=state.progress[row.word_id];
+      if(!validReview(local)||row.state.updated>local.updated)state.progress[row.word_id]=row.state;
+      else if(local.updated>row.state.updated)localNewer[row.word_id]=local;
+    }
+    const cloudIDs=new Set((rows||[]).map(r=>r.word_id));
+    for(const [id,v] of Object.entries(state.progress))if(!cloudIDs.has(id))localNewer[id]=v;
+    const seen=new Set(state.history.map(eventUUID));
+    for(const e of events||[]){const entry={id:e.word_id,at:Date.parse(e.answered_at),rating:e.rating,extra:e.extra};if(Number.isFinite(entry.at)&&!seen.has(e.event_id)){state.history.push(entry);seen.add(e.event_id);}}
+    state.history.sort((a,b)=>a.at-b.at);
+    saveLocal();beginNew();renderHistory();
+    await syncEntries(localNewer,[]);
+  }catch(e){console.warn('Cloud load failed:',e);$('study-notice').textContent=`Облачная синхронизация недоступна: ${e.message}. Локальные ответы сохранены.`;$('study-notice').classList.remove('hidden');}
+}
+async function syncEntries(progress,events){
+  if(!state.user)return;
+  const uid=state.user.id;
+  for(const [id,data] of Object.entries(progress)){
+    if(!validReview(data))continue;
+    await api('/rest/v1/word_progress?on_conflict=user_id,word_id',{method:'POST',headers:{Prefer:'resolution=merge-duplicates'},body:JSON.stringify({user_id:uid,word_id:id,state:data})});
+  }
+  for(let i=0;i<events.length;i+=100){
+    const batch=events.slice(i,i+100).filter(x=>Number.isFinite(x.at)&&['easy','hard','again'].includes(x.rating)).map(x=>({user_id:uid,event_id:eventUUID(x),word_id:x.id,rating:x.rating,answered_at:new Date(x.at).toISOString(),extra:!!x.extra}));
+    if(batch.length)await api('/rest/v1/review_history?on_conflict=user_id,event_id',{method:'POST',headers:{Prefer:'resolution=ignore-duplicates'},body:JSON.stringify(batch)});
+  }
+}
+async function saveProfile(){} // Google Sheet remains configured locally per device.
+async function syncProgress(id){
+  if(!state.user)return;
+  try{await syncEntries(state.progress[id]?{[id]:state.progress[id]}:{},state.history.slice(-1));}
+  catch(e){console.warn('Cloud sync failed:',e);$('study-notice').textContent='Облачная запись временно недоступна. Локальная копия сохранена.';$('study-notice').classList.remove('hidden');}
+}
+async function syncAll(){
+  if(!state.user)return;
+  // Always merge cloud before importing older backups; never overwrite newer values.
+  try{await loadCloud();await syncEntries(state.progress,state.history);note('import-message','Прогресс и история синхронизированы с облаком.');}
+  catch(e){note('import-message',`Локальный импорт сохранён, ошибка синхронизации: ${e.message}`);}
+}
 async function init(){loadLocal();renderSettings();renderStudy();if(state.sheet&&state.source!=='sheet')refreshSheet();if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js').catch(console.warn);
-  if(cfg.googleOAuthClientId){const el=document.createElement('script');el.src='https://accounts.google.com/gsi/client';el.async=true;document.head.append(el);}
-  if(hasBackend){const hash=tokenFromHash();if(hash){try{const u=await api('/auth/v1/user',{headers:{Authorization:`Bearer ${hash.access_token}`}});hash.user=u;await receiveSession(hash);}catch(e){console.warn(e);}}else await restoreAuth();}
+
+  if(hasBackend)await restoreAuth();
 }
 init();
