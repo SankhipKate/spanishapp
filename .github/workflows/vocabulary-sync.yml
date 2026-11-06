@@ -1,0 +1,44 @@
+name: Publish vocabulary snapshot
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: vocabulary-sync
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Select separate data branch
+        run: |
+          if git ls-remote --exit-code --heads origin vocabulary-sync >/dev/null; then
+            git fetch origin vocabulary-sync
+            git switch -C vocabulary-sync origin/vocabulary-sync
+          else
+            git switch -c vocabulary-sync
+          fi
+      - name: Download and validate current vocabulary
+        run: node scripts/sync-vocabulary.mjs
+      - name: Commit only vocabulary data to data branch
+        run: |
+          if git diff --quiet -- words.json && [ -f words.json ]; then
+            echo 'No vocabulary changes.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- words.json
+          git commit -m 'data: sync Google Sheets vocabulary'
+          git push origin HEAD:refs/heads/vocabulary-sync
