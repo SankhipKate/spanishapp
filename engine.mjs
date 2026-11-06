@@ -32,7 +32,7 @@ export function toWords(rows){
     const ru=String(rows[i][r]||'').trim(),es=String(rows[i][e]||'').split('/')[0].trim();if(!ru||!es)continue;
     const key=(id>=0&&rows[i][id])?`id:${rows[i][id].trim()}`:`text:${ru.toLocaleLowerCase('ru')}|${es.toLocaleLowerCase('es')}`;
     if(seen.has(key))continue;seen.add(key);
-    words.push({id:key,ru,es});
+    words.push({id:key,ru,es,sheetRow:i+1});
   }
   return words;
 }
