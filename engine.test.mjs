@@ -1,7 +1,7 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {parseCSV,toWords,recordRating,createSession,nextInSession,rateInSession,parseSheetUrl,dueCounts,compareLetters} from './engine.mjs';
 test('quoted commas and line breaks in CSV',()=>{const rows=parseCSV('Русский,Испанский\n"красивый, милый","lindo, bonito"\n"строка\n2",casa');assert.equal(rows[1][0],'красивый, милый');assert.equal(rows[2][0],'строка\n2');});
-test('header mapping and persistent IDs',()=>{const words=toWords([['ES','ID','RU'],['casa','one','дом']]);assert.deepEqual(words,[{id:'id:one',ru:'дом',es:'casa'}]);});
+test('header mapping and persistent IDs',()=>{const words=toWords([['ES','ID','RU'],['casa','one','дом']]);assert.deepEqual(words,[{id:'id:one',ru:'дом',es:'casa',sheetRow:2}]);});
 test('Google sheet URL recognizes gid in fragment',()=>assert.equal(parseSheetUrl('https://docs.google.com/spreadsheets/d/abc_123/edit#gid=456').gid,'456'));
 test('missed word returns after five other answers, including a second miss',()=>{
  const words=['A','B','C','D','E','F','G','H','I','J','K','L'].map(id=>({id,ru:id,es:id}));const q=createSession(words,{},1000,false,()=>0.999);

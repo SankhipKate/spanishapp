@@ -1,8 +1,9 @@
-import {parseCSV,toWords,parseSheetUrl,recordRating,createSession,nextInSession,rateInSession,dueCounts,compareLetters,recoverLegacyProgress,localDayKey,isDueOnCalendarDay,scheduledReviews,todayTrainingStats,dailyRatingStats} from './engine.mjs?v=27';
-import {readApiResponse} from './cloud-api.mjs?v=27';
-import {mergeReviewMaps,mergeHistoryEvents as mergeHistoryEventsCore} from './sync-merge.mjs?v=27';
+import {parseCSV,toWords,parseSheetUrl,recordRating,createSession,nextInSession,rateInSession,dueCounts,compareLetters,recoverLegacyProgress,localDayKey,isDueOnCalendarDay,scheduledReviews,todayTrainingStats,dailyRatingStats} from './engine.mjs?v=28';
+import {readApiResponse} from './cloud-api.mjs?v=28';
+import {mergeReviewMaps,mergeHistoryEvents as mergeHistoryEventsCore} from './sync-merge.mjs?v=28';
+import {mergeFlagMaps} from './word-flags.mjs?v=28';
 const $=id=>document.getElementById(id), cfg=window.APP_CONFIG||{};
-const APP_VERSION='0.26.0';
+const APP_VERSION='0.28.0';
 async function fetchPublishedVersion(){
  const response=await fetch(`./version.json?check=${Date.now()}`,{cache:'no-store'});
  if(!response.ok)throw new Error(`HTTP ${response.status}`);
@@ -31,7 +32,7 @@ $('check-app-update').addEventListener('click',checkAppUpdate);
 const KEY='palabras:v1';
 const DEMO=[['Русский','Испанский'],['дом','casa'],['сегодня','hoy'],['говорить','hablar'],['работать','trabajar'],['красивый','lindo, bonito'],['школа','escuela'],['вчера','ayer'],['утро','mañana'],['вода','agua'],['читать','leer']];
 let refreshTimer;
-const state={words:[],progress:{},sheet:'',range:'',reviewMode:'practice',session:null,accessToken:null,user:null,supabaseSession:null,googleToken:null,source:'',saving:null,history:[],legacy:null,openedAt:Date.now()};
+const state={words:[],progress:{},sheet:'',range:'',reviewMode:'practice',session:null,accessToken:null,user:null,supabaseSession:null,googleToken:null,source:'',saving:null,history:[],legacy:null,flags:{},studyMode:'normal',wordFilter:'all',openedAt:Date.now()};
 const hasBackend=!!(cfg.supabaseUrl&&cfg.supabaseAnonKey);
 let cloudLoading=false;
 const jsonHeaders=()=>({'apikey':cfg.supabaseAnonKey,'Content-Type':'application/json',...(state.accessToken?{'Authorization':`Bearer ${state.accessToken}`}:{})});
@@ -52,8 +53,8 @@ function restoreVerifiedCloud(){
   }catch(e){console.warn('Verified cloud cache unavailable',e);}
 }
 const storage=()=>{try{return JSON.parse(localStorage.getItem(localKey())||'{}')}catch{return {}}};
-function saveLocal(){try{localStorage.setItem(localKey(),JSON.stringify({progress:state.progress,sheet:state.sheet,range:state.range,reviewMode:state.reviewMode,source:state.source,words:state.words,history:state.history,legacy:state.legacy}));}catch(e){console.warn('Local save failed',e);}}
-function loadLocal(){const s=storage();state.progress=s.progress||{};state.sheet=s.sheet||cfg.defaultSheetUrl||'';state.range=s.range||'';state.reviewMode=s.reviewMode||'practice';state.source=s.source||'';state.words=s.words||[];state.history=Array.isArray(s.history)?s.history:[];
+function saveLocal(){try{localStorage.setItem(localKey(),JSON.stringify({progress:state.progress,sheet:state.sheet,range:state.range,reviewMode:state.reviewMode,source:state.source,words:state.words,history:state.history,legacy:state.legacy,flags:state.flags}));}catch(e){console.warn('Local save failed',e);}}
+function loadLocal(){const s=storage();state.progress=s.progress||{};state.sheet=s.sheet||cfg.defaultSheetUrl||'';state.range=s.range||'';state.reviewMode=s.reviewMode||'practice';state.source=s.source||'';state.words=s.words||[];state.history=Array.isArray(s.history)?s.history:[];state.flags=mergeFlagMaps(state.flags,s.flags);
   // One-time migration from the existing per-word progress (without changing it).
   state.legacy=s.legacy||recoverLegacyProgress(state.progress,state.history);
   if(!s.legacy)saveLocal();
@@ -67,9 +68,29 @@ function showPage(page){for(const el of document.querySelectorAll('.page'))el.cl
 for(const b of document.querySelectorAll('[data-page]'))b.addEventListener('click',()=>showPage(b.dataset.page));
 $('go-settings').onclick=()=>showPage('settings');
 function renderSettings(){$('sheet-url').value=state.sheet;$('sheet-range').value=state.range;$('review-mode').value=state.reviewMode;$('google-sheet-auth').classList.toggle('hidden',!cfg.googleOAuthClientId);}
-function renderWords(){const q=$('word-search').value.trim().toLowerCase();const list=state.words.filter(w=>!q||`${w.ru} ${w.es}`.toLowerCase().includes(q));$('words-empty').classList.toggle('hidden',!!list.length);const body=$('words-table');body.replaceChildren();for(const w of list.slice(0,500)){
-  const tr=document.createElement('tr');for(const val of [w.ru,w.es,!state.progress[w.id]?'Новое':isDueOnCalendarDay(state.progress[w.id].due)?'К повторению':'Изучается']){const td=document.createElement('td');td.textContent=val;tr.append(td);}body.append(tr);
-}}
+function flagActive(id,flag){return !!state.flags[id]?.[flag]?.enabled;}
+function flagWord(id){return state.words.find(w=>w.id===id)||state.flags[id]?.snapshot||null;}
+function flagButton(word,flag,label){const button=document.createElement('button');button.type='button';button.className='flag-button'+(flagActive(word.id,flag)?' selected':'');button.textContent=flag==='fix'?'✎':'↻';button.setAttribute('aria-label',`${flagActive(word.id,flag)?'Убрать из':'Добавить в'} ${label}: ${word.ru}`);button.title=label;button.setAttribute('aria-pressed',String(flagActive(word.id,flag)));button.onclick=()=>toggleFlag(word,flag);return button;}
+function sheetEditLink(word){if(!state.sheet)return null;const link=document.createElement('a');try{const parsed=parseSheetUrl(state.sheet);link.href=`https://docs.google.com/spreadsheets/d/${parsed.id}/edit#gid=${parsed.gid}${word.sheetRow?'&range=A'+word.sheetRow+':B'+word.sheetRow:''}`;}catch{link.href=state.sheet;}link.target='_blank';link.rel='noopener noreferrer';link.textContent='Открыть таблицу ↗';link.className='sheet-edit-link';link.title='Найти и исправить слово в Google Таблице';return link;}
+function renderWords(){const q=$('word-search').value.trim().toLowerCase();const list=state.wordFilter==='all'?state.words:Object.entries(state.flags).filter(([,v])=>v[state.wordFilter]?.enabled).map(([id])=>flagWord(id)).filter(Boolean);
+ const filtered=list.filter(w=>!q||`${w.ru} ${w.es}`.toLowerCase().includes(q));$('words-empty').classList.toggle('hidden',!!filtered.length);const body=$('words-table');body.replaceChildren();
+ for(const w of filtered.slice(0,1000)){
+  const tr=document.createElement('tr');for(const val of [w.ru,w.es]){const td=document.createElement('td');td.textContent=val;tr.append(td);}
+  const actions=document.createElement('td');actions.className='word-actions';actions.append(flagButton(w,'fix','Fix me'),flagButton(w,'repeat','Повторить'));
+  if(state.wordFilter==='fix'){const link=sheetEditLink(w);if(link)actions.append(link);}
+  tr.append(actions);body.append(tr);
+ }
+ updateFlagCounts();
+}
+function updateFlagCounts(){const repeat=Object.keys(state.flags).filter(id=>flagActive(id,'repeat')).length;const fix=Object.keys(state.flags).filter(id=>flagActive(id,'fix')).length;
+ $('fix-count').textContent=fix;$('repeat-count').textContent=repeat;$('start-repeat').disabled=!repeat;
+ $('repeat-training-count').textContent=repeat;
+}
+for(const button of document.querySelectorAll('[data-word-filter]'))button.addEventListener('click',()=>{state.wordFilter=button.dataset.wordFilter;for(const b of document.querySelectorAll('[data-word-filter]'))b.classList.toggle('active',b===button);renderWords();});
+async function toggleFlag(word,tag){const old=state.flags[word.id]?.[tag];const was=!!old?.enabled;state.flags[word.id]??={};state.flags[word.id].snapshot={id:word.id,ru:word.ru,es:word.es,sheetRow:word.sheetRow};state.flags[word.id][tag]={enabled:!was,at:Date.now()};saveLocal();updateFlagCounts();renderWords();renderStudyFlags();if(state.user)try{await pushFlag(word.id,tag);}catch(err){console.warn('Failed to sync flag',err);$('study-notice').textContent='Отметка сохранена на этом устройстве; синхронизация не удалась.';$('study-notice').classList.remove('hidden');}}
+function renderStudyFlags(){const w=flagWord(state.session?.current);const target=$('study-flags');target.replaceChildren();if(!w)return;target.append(flagButton(w,'fix','Fix me'),flagButton(w,'repeat','Повторить'));}
+function setStudyMode(mode){state.studyMode=mode;state.session=null;$('normal-training').classList.toggle('active',mode==='normal');$('repeat-training').classList.toggle('active',mode==='repeat');$('study-mode-desc').textContent=mode==='repeat'?'Отдельная тренировка из отмеченных слов.':'Напиши перевод и оцени свой ответ.';renderStudy();}
+$('normal-training').onclick=()=>setStudyMode('normal');$('repeat-training').onclick=()=>setStudyMode('repeat');$('start-repeat').onclick=()=>{setStudyMode('repeat');showPage('study');};$('back-normal').onclick=()=>setStudyMode('normal');
 $('word-search').oninput=renderWords;
 function renderStats(){
  const c=dueCounts(state.words,state.progress);
@@ -83,15 +104,15 @@ function renderStats(){
  $('study-hard').textContent=today.hard;
  $('study-again').textContent=today.again;
 }
-function renderStudy(){renderStats();const active=state.words.length>0;$('study-empty').classList.toggle('hidden',state.words.length>0);$('study-card').classList.toggle('hidden',!active);if(!active)return;
-  if(!state.session)state.session=createSession(state.words,state.progress,Date.now(),true);
-  if(!Array.isArray(state.session.queue))state.session=createSession(state.words,state.progress,Date.now(),true);
+function renderStudy(){renderStats();const trainingWords=state.studyMode==='repeat'?state.words.filter(w=>flagActive(w.id,'repeat')):state.words;const active=trainingWords.length>0;if(!active&&state.studyMode==='repeat'){$('study-empty').querySelector('h2').textContent='Список «Повторить» пуст';$('study-empty').querySelector('p').textContent='Добавь слова через ↻ в тренировке или словаре.';}else{$('study-empty').querySelector('h2').textContent='Подключи словарь';$('study-empty').querySelector('p').textContent='Добавь ссылку на Google Таблицу в настройках или попробуй демонстрационный набор.';}$('study-empty').classList.toggle('hidden',active);$('study-card').classList.toggle('hidden',!active);if(!active){$('repeat-finished').classList.add('hidden');return;}
+  if(!state.session)state.session=state.studyMode==='repeat'?createSession(trainingWords,{},Date.now(),false):createSession(trainingWords,state.progress,Date.now(),true);
+  if(!Array.isArray(state.session.queue))state.session=state.studyMode==='repeat'?createSession(trainingWords,{},Date.now(),false):createSession(trainingWords,state.progress,Date.now(),true);
   const id=nextInSession(state.session);
-  if(!id){state.session=createSession(state.words,state.progress,Date.now(),true);const restarted=nextInSession(state.session);if(!restarted){$('study-card').classList.add('hidden');$('study-notice').textContent='Не удалось выбрать слово. Обнови словарь в настройках.';$('study-notice').classList.remove('hidden');return;}}
-  const currentId=state.session.current;
+  if(!id){if(state.studyMode==='repeat'){$('study-card').classList.add('hidden');$('repeat-finished').classList.remove('hidden');renderStudyFlags();return;}state.session=createSession(trainingWords,state.progress,Date.now(),true);const restarted=nextInSession(state.session);if(!restarted){$('study-card').classList.add('hidden');$('study-notice').textContent='Не удалось выбрать слово. Обнови словарь в настройках.';$('study-notice').classList.remove('hidden');return;}}
+  $('repeat-finished').classList.add('hidden');const currentId=state.session.current;
   let word=state.words.find(w=>w.id===currentId);
   if(!word){state.session=createSession(state.words,state.progress,Date.now(),true);word=state.words.find(w=>w.id===nextInSession(state.session));if(!word){$('study-notice').textContent='Не удалось выбрать слово из словаря.';$('study-notice').classList.remove('hidden');return;}}
-  $('prompt-word').textContent=word.ru;$('answer-word').textContent=word.es;
+  $('prompt-word').textContent=word.ru;$('answer-word').textContent=word.es;renderStudyFlags();
 
   $('typed-answer').readOnly=false;$('typed-answer').value='';$('answer-compare').replaceChildren();$('answer-compare').classList.add('hidden');$('revealed-area').classList.add('hidden');$('reveal').classList.remove('hidden');focusAnswer();
 }
@@ -118,7 +139,7 @@ document.addEventListener('keydown',e=>{
  if(!$('reveal').classList.contains('hidden'))$('reveal').click();
  else if(!$('revealed-area').classList.contains('hidden'))$('rate-easy').click();
 });
-async function rate(rating){if(cloudLoading)return;const s=state.session;if(!s?.current)return;const result=rateInSession(s,rating);if(result.save)state.progress[result.id]=recordRating(state.progress[result.id],rating);state.history.push({at:Date.now(),id:result.id,rating,extra:!result.save});saveLocal();renderStudy();await syncProgress(result.id);}
+async function rate(rating){if(cloudLoading)return;const s=state.session;if(!s?.current)return;const result=rateInSession(s,rating);const special=state.studyMode==='repeat';if(!special&&result.save)state.progress[result.id]=recordRating(state.progress[result.id],rating);state.history.push({at:Date.now(),id:result.id,rating,extra:special||!result.save});saveLocal();renderStudy();await syncProgress(result.id);}
 $('rate-again').onclick=()=>rate('again');$('rate-hard').onclick=()=>rate('hard');$('rate-easy').onclick=()=>rate('easy');
 function renderHistory(){
  renderStats();
@@ -207,8 +228,8 @@ function authorizeGoogle(){if(!cfg.googleOAuthClientId){note('sheet-message','В
 }
 $('google-sheet-auth').onclick=authorizeGoogle;
 function download(name,data){const blob=new Blob([data],{type:'application/json;charset=utf-8'});const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),500);}
-$('export-data').onclick=()=>download('slova-progress.json',JSON.stringify({version:1,progress:state.progress,history:state.history,legacy:state.legacy,sheet:state.sheet,range:state.range},null,2));
-$('import-data').onchange=async e=>{const f=e.target.files?.[0];if(!f)return;try{const data=JSON.parse(await f.text());if(data.version!==1||typeof data.progress!=='object'||!data.progress||Array.isArray(data.progress))throw new Error('Неподдерживаемый формат.');state.progress=mergeReviewMaps(state.progress,data.progress);state.history=mergeHistoryEvents(state.history,Array.isArray(data.history)?data.history:[]);state.legacy=data.legacy||recoverLegacyProgress(state.progress,state.history);saveLocal();beginNew();note('import-message','Прогресс импортирован локально.');if(state.user)await syncAll();}catch(err){note('import-message',`Ошибка импорта: ${err.message}`);}e.target.value='';};
+$('export-data').onclick=()=>download('slova-progress.json',JSON.stringify({version:1,progress:state.progress,history:state.history,legacy:state.legacy,flags:state.flags,sheet:state.sheet,range:state.range},null,2));
+$('import-data').onchange=async e=>{const f=e.target.files?.[0];if(!f)return;try{const data=JSON.parse(await f.text());if(data.version!==1||typeof data.progress!=='object'||!data.progress||Array.isArray(data.progress))throw new Error('Неподдерживаемый формат.');state.progress=mergeReviewMaps(state.progress,data.progress);state.history=mergeHistoryEvents(state.history,Array.isArray(data.history)?data.history:[]);state.flags=mergeFlagMaps(state.flags,data.flags);state.legacy=data.legacy||recoverLegacyProgress(state.progress,state.history);saveLocal();beginNew();note('import-message','Прогресс импортирован локально.');if(state.user)await syncAll();}catch(err){note('import-message',`Ошибка импорта: ${err.message}`);}e.target.value='';};
 // Supabase Auth + REST. Row-level security in schema.sql protects each user's rows.
 async function api(path,options={}) {
   if(!hasBackend)throw new Error('Supabase пока не настроен.');
@@ -228,10 +249,10 @@ async function receiveSession(session){
   if(session?.expires_at)refreshTimer=setTimeout(()=>refreshSession(),Math.max(30000,session.expires_at*1000-Date.now()-60000));
   if(oldUser!==state.user?.id){
     // Changing account must not replace an already loaded cloud snapshot with a tiny cache.
-    const current=state.progress,previousHistory=state.history;
+    const current=state.progress,previousHistory=state.history,previousFlags=state.flags;
     loadLocal();
     if(state.user){
-      if(oldUser===state.user.id){state.progress=mergeReviewMaps(current,state.progress);state.history=mergeHistoryEvents(previousHistory,state.history);}
+      if(oldUser===state.user.id){state.progress=mergeReviewMaps(current,state.progress);state.history=mergeHistoryEvents(previousHistory,state.history);state.flags=mergeFlagMaps(previousFlags,state.flags);}
       restoreVerifiedCloud();
       saveLocal();
       await loadCloud();
@@ -303,12 +324,15 @@ async function loadCloud({throwOnError=false}={}){
     for(const [id,v] of Object.entries(state.progress))if(!cloudIDs.has(id))localNewer[id]=v;
     const seen=new Set(state.history.map(eventUUID));
     for(const e of events||[]){const entry={id:e.word_id,at:Date.parse(e.answered_at),rating:e.rating,extra:e.extra};if(Number.isFinite(entry.at)&&!seen.has(e.event_id)){state.history.push(entry);seen.add(e.event_id);}}
+    try{const flagRows=await api(`/rest/v1/word_flags?user_id=eq.${uid}&select=word_id,flag,enabled,updated_at,ru,es`);const remoteFlags={};for(const r of flagRows||[]){remoteFlags[r.word_id]??={snapshot:{id:r.word_id,ru:r.ru,es:r.es}};remoteFlags[r.word_id][r.flag]={enabled:r.enabled,at:Date.parse(r.updated_at)||0};}const flagUpdates=[];for(const [id,tags] of Object.entries(state.flags))for(const tag of ['fix','repeat'])if(tags?.[tag]&&tags[tag].at>(remoteFlags[id]?.[tag]?.at||0))flagUpdates.push([id,tag]);state.flags=mergeFlagMaps(state.flags,remoteFlags);updateFlagCounts();for(const [id,tag] of flagUpdates)await pushFlag(id,tag);}catch(e){console.warn('Word flags unavailable; run migration SQL',e);$('study-notice').textContent='Синхронизация отметок пока не настроена: требуется word-flags-migration.sql';$('study-notice').classList.remove('hidden');}
     state.history.sort((a,b)=>a.at-b.at);
     saveVerifiedCloud();
     saveLocal();beginNew();renderHistory();
     await syncEntries(localNewer,[]);saveVerifiedCloud();
   }catch(e){console.warn('Cloud load failed:',e);$('study-notice').textContent=`Облачная синхронизация недоступна: ${e.message}. Локальные ответы сохранены.`;$('study-notice').classList.remove('hidden');if(throwOnError)throw e;}finally{cloudLoading=false;}
 }
+async function pushFlag(id,tag){if(!state.user||!state.flags[id]?.[tag])return;const f=state.flags[id][tag],w=flagWord(id)||{ru:'',es:''};const latest=await api(`/rest/v1/word_flags?user_id=eq.${encodeURIComponent(state.user.id)}&word_id=eq.${encodeURIComponent(id)}&flag=eq.${tag}&select=enabled,updated_at,ru,es`);if(latest?.[0]&&Date.parse(latest[0].updated_at)>f.at){state.flags[id][tag]={enabled:latest[0].enabled,at:Date.parse(latest[0].updated_at)};saveLocal();updateFlagCounts();return;}await api('/rest/v1/word_flags?on_conflict=user_id,word_id,flag',{method:'POST',headers:{Prefer:'resolution=merge-duplicates'},body:JSON.stringify({user_id:state.user.id,word_id:id,flag:tag,enabled:f.enabled,updated_at:new Date(f.at).toISOString(),ru:w.ru,es:w.es})});}
+async function syncFlags(){for(const [id,flags] of Object.entries(state.flags))for(const tag of ['fix','repeat'])if(flags?.[tag])await pushFlag(id,tag);}
 async function syncEntries(progress,events){
   if(!state.user)return;
   const uid=state.user.id;
@@ -330,11 +354,11 @@ async function syncProgress(id){
 async function syncAll(){
   if(!state.user)return;
   // Always merge cloud before importing older backups; never overwrite newer values.
-  try{await loadCloud({throwOnError:true});await syncEntries(state.progress,state.history);saveVerifiedCloud();note('import-message','Прогресс и история синхронизированы с облаком.');}
+  try{await loadCloud({throwOnError:true});await syncEntries(state.progress,state.history);await syncFlags();saveVerifiedCloud();note('import-message','Прогресс и история синхронизированы с облаком.');}
   catch(e){note('import-message',`Локальный импорт сохранён, ошибка синхронизации: ${e.message}`);}
 }
 async function init(){loadLocal();renderSettings();renderStudy();if(state.sheet&&state.source!=='sheet')refreshSheet();if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js').catch(console.warn);
 
-  if(hasBackend)await restoreAuth();
+  if(hasBackend)await restoreAuth();updateFlagCounts();if(Object.values(state.flags).some(v=>v.repeat?.enabled))setStudyMode('repeat');
 }
 init();

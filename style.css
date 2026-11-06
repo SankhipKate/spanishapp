@@ -78,3 +78,15 @@
 .keyboard-hint{font-size:11px;line-height:1.35;text-align:center;color:#71857b;margin:10px 0 0;}
 
 .app-version-footer{text-align:center;margin:24px 0 12px;color:#71847b;font-size:12px}.app-version-footer span{white-space:nowrap}
+
+/* v0.28 – independent word lists and separate daily repetition */
+.filter-pills{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0 18px}
+.filter-pills button{font:inherit;font-size:14px;border:1px solid #cddcd3;border-radius:10px;background:white;padding:10px 14px;color:#265c4a;cursor:pointer}
+.filter-pills button.active{background:#126e53;color:white;border-color:#126e53}
+.filter-pills button:disabled{opacity:.45;cursor:not-allowed}
+.quiz-prompt-row{position:relative}.quiz-prompt-row .quiz-word{padding-right:88px;padding-left:88px}
+.study-flags{display:flex;position:absolute;right:2px;top:2px;gap:5px}
+.flag-button{border:1px solid #cbdcd2;border-radius:9px;background:#fff;color:#577768;font-size:23px;line-height:1;min-width:40px;min-height:40px;cursor:pointer}
+.flag-button.selected{color:#086b50;background:#dff3e8;border-color:#168563}
+.word-actions{white-space:nowrap}.word-actions .flag-button{margin-right:4px}.sheet-edit-link{display:block;font-size:12px;margin-top:5px;color:#126e53}
+@media(max-width:620px){.quiz-prompt-row .quiz-word{padding-left:58px;padding-right:58px}.study-flags{top:0}.flag-button{min-width:36px;min-height:36px;font-size:21px}.filter-pills button{font-size:13px;padding:9px}}
