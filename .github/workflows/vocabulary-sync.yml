@@ -33,7 +33,7 @@ jobs:
         run: node scripts/sync-vocabulary.mjs
       - name: Commit only vocabulary data to data branch
         run: |
-          if git diff --quiet -- words.json && [ -f words.json ]; then
+          if git ls-files --error-unmatch words.json >/dev/null 2>&1 && git diff --quiet -- words.json; then
             echo 'No vocabulary changes.'
             exit 0
           fi
