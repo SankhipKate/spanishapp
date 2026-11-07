@@ -13,3 +13,19 @@ export async function readApiResponse(response) {
   }
   return payload;
 }
+
+// Continue until an empty page: a server may cap responses below pageSize.
+// Callers supply a deterministic order ending in a unique key.
+export async function readAllRows(api, path, pageSize = 500) {
+  const rows = [];
+  let previousPage = null;
+  for (;;) {
+    const page = await api(`${path}&limit=${pageSize}&offset=${rows.length}`);
+    if (!Array.isArray(page)) throw new Error('Некорректный ответ при загрузке истории.');
+    if (!page.length) return rows;
+    const signature = JSON.stringify(page);
+    if (signature === previousPage) throw new Error('Сервер повторяет страницу данных. Загрузка прервана.');
+    rows.push(...page);
+    previousPage = signature;
+  }
+}
