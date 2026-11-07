@@ -1,9 +1,9 @@
-import {parseCSV,toWords,parseSheetUrl,recordRating,createSession,nextInSession,rateInSession,dueCounts,compareLetters,recoverLegacyProgress,localDayKey,isDueOnCalendarDay,scheduledReviews,todayTrainingStats,dailyRatingStats} from './engine.mjs?v=28';
-import {readApiResponse} from './cloud-api.mjs?v=28';
-import {mergeReviewMaps,mergeHistoryEvents as mergeHistoryEventsCore} from './sync-merge.mjs?v=28';
-import {mergeFlagMaps} from './word-flags.mjs?v=28';
+import {parseCSV,toWords,parseSheetUrl,recordRating,createSession,nextInSession,rateInSession,dueCounts,compareLetters,recoverLegacyProgress,localDayKey,isDueOnCalendarDay,scheduledReviews,todayTrainingStats,dailyRatingStats} from './engine.mjs?v=29';
+import {readApiResponse,readAllRows} from './cloud-api.mjs?v=29';
+import {mergeReviewMaps,mergeHistoryEvents as mergeHistoryEventsCore} from './sync-merge.mjs?v=29';
+import {mergeFlagMaps} from './word-flags.mjs?v=29';
 const $=id=>document.getElementById(id), cfg=window.APP_CONFIG||{};
-const APP_VERSION='0.28.0';
+const APP_VERSION='0.29.0';
 async function fetchPublishedVersion(){
  const response=await fetch(`./version.json?check=${Date.now()}`,{cache:'no-store'});
  if(!response.ok)throw new Error(`HTTP ${response.status}`);
@@ -311,8 +311,8 @@ async function loadCloud({throwOnError=false}={}){
   try{
     const uid=encodeURIComponent(state.user.id);
     const [rows,events]=await Promise.all([
-      api(`/rest/v1/word_progress?user_id=eq.${uid}&select=word_id,state`),
-      api(`/rest/v1/review_history?user_id=eq.${uid}&select=event_id,word_id,rating,answered_at,extra`)
+      readAllRows(api,`/rest/v1/word_progress?user_id=eq.${uid}&select=word_id,state&order=word_id.asc`),
+      readAllRows(api,`/rest/v1/review_history?user_id=eq.${uid}&select=event_id,word_id,rating,answered_at,extra&order=answered_at.asc,event_id.asc`)
     ]);
     const localNewer={};
     for(const row of rows||[]){
@@ -324,7 +324,7 @@ async function loadCloud({throwOnError=false}={}){
     for(const [id,v] of Object.entries(state.progress))if(!cloudIDs.has(id))localNewer[id]=v;
     const seen=new Set(state.history.map(eventUUID));
     for(const e of events||[]){const entry={id:e.word_id,at:Date.parse(e.answered_at),rating:e.rating,extra:e.extra};if(Number.isFinite(entry.at)&&!seen.has(e.event_id)){state.history.push(entry);seen.add(e.event_id);}}
-    try{const flagRows=await api(`/rest/v1/word_flags?user_id=eq.${uid}&select=word_id,flag,enabled,updated_at,ru,es`);const remoteFlags={};for(const r of flagRows||[]){remoteFlags[r.word_id]??={snapshot:{id:r.word_id,ru:r.ru,es:r.es}};remoteFlags[r.word_id][r.flag]={enabled:r.enabled,at:Date.parse(r.updated_at)||0};}const flagUpdates=[];for(const [id,tags] of Object.entries(state.flags))for(const tag of ['fix','repeat'])if(tags?.[tag]&&tags[tag].at>(remoteFlags[id]?.[tag]?.at||0))flagUpdates.push([id,tag]);state.flags=mergeFlagMaps(state.flags,remoteFlags);updateFlagCounts();for(const [id,tag] of flagUpdates)await pushFlag(id,tag);}catch(e){console.warn('Word flags unavailable; run migration SQL',e);$('study-notice').textContent='Синхронизация отметок пока не настроена: требуется word-flags-migration.sql';$('study-notice').classList.remove('hidden');}
+    try{const flagRows=await readAllRows(api,`/rest/v1/word_flags?user_id=eq.${uid}&select=word_id,flag,enabled,updated_at,ru,es&order=word_id.asc,flag.asc`);const remoteFlags={};for(const r of flagRows||[]){remoteFlags[r.word_id]??={snapshot:{id:r.word_id,ru:r.ru,es:r.es}};remoteFlags[r.word_id][r.flag]={enabled:r.enabled,at:Date.parse(r.updated_at)||0};}const flagUpdates=[];for(const [id,tags] of Object.entries(state.flags))for(const tag of ['fix','repeat'])if(tags?.[tag]&&tags[tag].at>(remoteFlags[id]?.[tag]?.at||0))flagUpdates.push([id,tag]);state.flags=mergeFlagMaps(state.flags,remoteFlags);updateFlagCounts();for(const [id,tag] of flagUpdates)await pushFlag(id,tag);}catch(e){console.warn('Word flags unavailable; run migration SQL',e);$('study-notice').textContent='Синхронизация отметок пока не настроена: требуется word-flags-migration.sql';$('study-notice').classList.remove('hidden');}
     state.history.sort((a,b)=>a.at-b.at);
     saveVerifiedCloud();
     saveLocal();beginNew();renderHistory();
