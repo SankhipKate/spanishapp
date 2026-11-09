@@ -1,9 +1,9 @@
-import {parseCSV,toWords,parseSheetUrl,recordRating,createSession,nextInSession,rateInSession,dueCounts,compareLetters,recoverLegacyProgress,localDayKey,isDueOnCalendarDay,scheduledReviews,todayTrainingStats,dailyRatingStats} from './engine.mjs?v=29';
-import {readApiResponse,readAllRows} from './cloud-api.mjs?v=29';
-import {mergeReviewMaps,mergeHistoryEvents as mergeHistoryEventsCore} from './sync-merge.mjs?v=29';
-import {mergeFlagMaps} from './word-flags.mjs?v=29';
+import {parseCSV,toWords,parseSheetUrl,recordRating,createSession,nextInSession,rateInSession,dueCounts,compareLetters,recoverLegacyProgress,localDayKey,isDueOnCalendarDay,scheduledReviews,todayTrainingStats,dailyRatingStats} from './engine.mjs?v=30';
+import {readApiResponse,readAllRows} from './cloud-api.mjs?v=30';
+import {mergeReviewMaps,mergeHistoryEvents as mergeHistoryEventsCore} from './sync-merge.mjs?v=30';
+import {mergeFlagMaps} from './word-flags.mjs?v=30';
 const $=id=>document.getElementById(id), cfg=window.APP_CONFIG||{};
-const APP_VERSION='0.29.0';
+const APP_VERSION='0.30.0';
 async function fetchPublishedVersion(){
  const response=await fetch(`./version.json?check=${Date.now()}`,{cache:'no-store'});
  if(!response.ok)throw new Error(`HTTP ${response.status}`);
@@ -143,7 +143,8 @@ async function rate(rating){if(cloudLoading)return;const s=state.session;if(!s?.
 $('rate-again').onclick=()=>rate('again');$('rate-hard').onclick=()=>rate('hard');$('rate-easy').onclick=()=>rate('easy');
 function renderHistory(){
  renderStats();
- const reviewed=Object.entries(state.progress).filter(([,r])=>r&&Number.isFinite(r.updated)&&r.updated>0);
+ const currentWordIds=new Set(state.words.map(w=>w.id));
+ const reviewed=Object.entries(state.progress).filter(([id,r])=>currentWordIds.has(id)&&r&&Number.isFinite(r.updated)&&r.updated>0);
  const ratings={again:0,hard:0,easy:0};
  for(const [,r] of reviewed)if(Object.hasOwn(ratings,r.lastRating))ratings[r.lastRating]++;
  const journal=(state.history||[]).filter(x=>x&&Number.isFinite(x.at));
@@ -160,14 +161,16 @@ function renderHistory(){
  }
  for(const oldDay of state.legacy?.days||[])getDay(oldDay);
 
- $('p-learned').textContent=reviewed.length;
+ const counts=dueCounts(state.words,state.progress);
+ const learned=counts.total-counts.new;
+ $('p-learned').textContent=learned;
  $('p-hard').textContent=ratings.hard;
  $('p-easy').textContent=ratings.easy;
  $('p-again').textContent=ratings.again;
- const total=state.words.length;const percent=total?Math.round(reviewed.length/total*100):0;
+ const total=counts.total;const percent=total?Math.round(learned/total*100):0;
  $('learned-progress-fill').style.width=`${Math.min(percent,100)}%`;
  $('learned-progress-bar').setAttribute('aria-valuenow',Math.min(percent,100));
- $('learned-progress-caption').textContent=`Изучено ${reviewed.length} из ${total} слов · ${percent}%`;
+ $('learned-progress-caption').textContent=`Изучено ${learned} из ${total} слов · ${percent}%`;
  $('p-days').textContent=`${buckets.size} ${plural(buckets.size,'день','дня','дней')} занятий`;
  const root=$('history-list');root.replaceChildren();
  const sorted=[...buckets].sort((a,b)=>b[0].localeCompare(a[0]));
