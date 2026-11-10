@@ -96,6 +96,11 @@ export function createSession(words,progress,now=Date.now(),practice=true,random
   const queue=[...shuffle(due,random),...shuffle(newWords,random)];
   return {queue,retry:[],done:new Set(),words:words.map(w=>w.id),later,practice,random,answered:0,again:0,current:null,sessionRatings:new Map()};
 }
+export function copySession(s){
+  return {...s,queue:[...s.queue],retry:s.retry.map(x=>({...x})),
+    done:new Set(s.done),sessionRatings:new Map(s.sessionRatings),
+    ...(s.practiceDeck?{practiceDeck:[...s.practiceDeck]}:{})};
+}
 export function nextInSession(s){
   if(s.current)return s.current;
   // Retry cards after at least five other answers have been shown, or as soon as the normal queue empties.
