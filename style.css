@@ -91,15 +91,14 @@
 .word-actions{white-space:nowrap}.word-actions .flag-button{margin-right:4px}.sheet-edit-link{display:block;font-size:12px;margin-top:5px;color:#126e53}
 @media(max-width:620px){.quiz-prompt-row .quiz-word{padding-left:58px;padding-right:58px}.study-flags{top:0}.flag-button{min-width:36px;min-height:36px;font-size:21px}.filter-pills button{font-size:13px;padding:9px}}
 
-/* v0.31.0: card controls and two-level Russian prompt. */
+/* v0.31.0: card controls and Russian prompt. */
 .quiz-prompt-row{position:static}
 .study-card-toolbar{display:flex;align-items:center;justify-content:space-between;min-height:44px;gap:8px}
 .study-toolbar-left{display:flex;align-items:center;gap:8px}
 .quiz-prompt-row .study-flags{display:flex;position:static;gap:6px}
 .quiz-prompt-row .quiz-word{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;padding:14px 4px 18px;min-width:0;overflow-wrap:normal;word-break:normal}
 .quiz-word .prompt-lead{font-size:clamp(30px,6vw,44px);font-weight:700;line-height:1.2;max-width:100%;white-space:normal;overflow-wrap:normal;word-break:normal;text-align:center}
-.quiz-word.is-single .prompt-lead{white-space:nowrap;display:block;max-width:none;line-height:1.15}
-.quiz-word .prompt-rest{font-size:clamp(13px,3vw,16px);font-weight:400;line-height:1.4;color:#526a5c;text-align:center;overflow-wrap:normal;word-break:normal}
+.quiz-word .prompt-rest{font-size:50%;font-weight:400;line-height:1.4;color:#526a5c;text-align:center;overflow-wrap:normal;word-break:normal}
 .previous-word{border:1px solid #cbdcd2;border-radius:9px;background:#fff;color:#577768;font-size:23px;line-height:1;min-width:40px;min-height:40px;cursor:pointer}
 .previous-word:disabled{opacity:.35;cursor:default}
 @media(max-width:620px){.quiz-prompt-row .quiz-word{padding:12px 2px 14px}.previous-word{min-width:36px;min-height:36px}}

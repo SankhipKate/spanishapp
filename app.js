@@ -4,7 +4,7 @@ import {mergeReviewMaps,mergeHistoryEvents as mergeHistoryEventsCore} from './sy
 import {mergeFlagMaps} from './word-flags.mjs?v=32';
 import {missingCloudEvents} from './sync-outbox.mjs?v=32';
 const $=id=>document.getElementById(id), cfg=window.APP_CONFIG||{};
-const APP_VERSION='0.32.0';
+const APP_VERSION='0.33.0';
 async function fetchPublishedVersion(){
  const response=await fetch(`./version.json?check=${Date.now()}`,{cache:'no-store'});
  if(!response.ok)throw new Error(`HTTP ${response.status}`);
@@ -120,17 +120,18 @@ function renderStudyFlags(){
 }
 function formatPrompt(value){
  const el=$('prompt-word');el.replaceChildren();
- const text=String(value||'').trim();const terms=text.split(/\s+/).filter(Boolean);
- const lead=document.createElement('span');lead.className='prompt-lead';lead.textContent=terms.slice(0,2).join(' ');
- if(terms.length===1){lead.classList.add('single-word');el.classList.add('is-single');}
- else el.classList.remove('is-single');
+ const text=String(value||'').trim();
+ const slash=text.indexOf('/');
+ const lead=document.createElement('span');
+ lead.className='prompt-lead';
+ lead.textContent=slash===-1?text:text.slice(0,slash);
+ if(slash!==-1){
+   const rest=document.createElement('span');
+   rest.className='prompt-rest';
+   rest.textContent=text.slice(slash);
+   lead.append(rest);
+ }
  el.append(lead);
- if(terms.length>2){const rest=document.createElement('span');rest.className='prompt-rest';rest.textContent=terms.slice(2).join(' ');el.append(rest);}
- if(terms.length===1)requestAnimationFrame(()=>{
-   if(!lead.isConnected)return;
-   let size=44;lead.style.fontSize=size+'px';
-   while(size>16&&lead.scrollWidth>el.clientWidth-4){size-=1;lead.style.fontSize=size+'px';}
- });
 }
 function setStudyMode(mode){state.studyMode=mode;state.session=null;state.displayedId=null;state.lastAnswer=null;state.correction=null;$('normal-training').classList.toggle('active',mode==='normal');$('repeat-training').classList.toggle('active',mode==='repeat');$('study-mode-desc').textContent=mode==='repeat'?'Отдельная тренировка из отмеченных слов.':'Напиши перевод и оцени свой ответ.';renderStudy();}
 $('normal-training').onclick=()=>setStudyMode('normal');$('repeat-training').onclick=()=>setStudyMode('repeat');$('start-repeat').onclick=()=>{setStudyMode('repeat');showPage('study');};$('back-normal').onclick=()=>setStudyMode('normal');
