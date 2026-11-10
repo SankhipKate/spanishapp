@@ -1,9 +1,10 @@
-import {parseCSV,toWords,parseSheetUrl,recordRating,createSession,copySession,nextInSession,rateInSession,dueCounts,compareLetters,recoverLegacyProgress,localDayKey,isDueOnCalendarDay,scheduledReviews,todayTrainingStats,dailyRatingStats} from './engine.mjs?v=31';
-import {readApiResponse,readAllRows} from './cloud-api.mjs?v=31';
-import {mergeReviewMaps,mergeHistoryEvents as mergeHistoryEventsCore} from './sync-merge.mjs?v=31';
-import {mergeFlagMaps} from './word-flags.mjs?v=31';
+import {parseCSV,toWords,parseSheetUrl,recordRating,createSession,copySession,nextInSession,rateInSession,dueCounts,compareLetters,recoverLegacyProgress,localDayKey,isDueOnCalendarDay,scheduledReviews,todayTrainingStats,dailyRatingStats} from './engine.mjs?v=32';
+import {readApiResponse,readAllRows} from './cloud-api.mjs?v=32';
+import {mergeReviewMaps,mergeHistoryEvents as mergeHistoryEventsCore} from './sync-merge.mjs?v=32';
+import {mergeFlagMaps} from './word-flags.mjs?v=32';
+import {missingCloudEvents} from './sync-outbox.mjs?v=32';
 const $=id=>document.getElementById(id), cfg=window.APP_CONFIG||{};
-const APP_VERSION='0.31.0';
+const APP_VERSION='0.32.0';
 async function fetchPublishedVersion(){
  const response=await fetch(`./version.json?check=${Date.now()}`,{cache:'no-store'});
  if(!response.ok)throw new Error(`HTTP ${response.status}`);
@@ -35,6 +36,28 @@ let refreshTimer;
 const state={words:[],progress:{},sheet:'',range:'',reviewMode:'practice',session:null,displayedId:null,lastAnswer:null,correction:null,accessToken:null,user:null,supabaseSession:null,googleToken:null,source:'',saving:null,history:[],legacy:null,flags:{},studyMode:'normal',wordFilter:'all',openedAt:Date.now()};
 const hasBackend=!!(cfg.supabaseUrl&&cfg.supabaseAnonKey);
 let cloudLoading=false;
+let needsCloudRepair=false;
+let cloudRetryTimer=null;
+function scheduleCloudRepair(delay=60000){
+ if(!state.user)return;
+ if(cloudRetryTimer!==null)clearTimeout(cloudRetryTimer);
+ cloudRetryTimer=setTimeout(()=>{
+   cloudRetryTimer=null;
+   if(!state.user)return;
+   if(cloudLoading){scheduleCloudRepair();return;}
+   loadCloud();
+ },delay);
+}
+function markCloudRepairNeeded(message){
+ needsCloudRepair=true;
+ $('study-notice').textContent=message;
+ $('study-notice').classList.remove('hidden');
+ scheduleCloudRepair();
+}
+window.addEventListener('online',()=>{if(needsCloudRepair&&state.user)scheduleCloudRepair(0);});
+document.addEventListener('visibilitychange',()=>{
+ if(document.visibilityState==='visible'&&needsCloudRepair&&state.user)scheduleCloudRepair(0);
+});
 const jsonHeaders=()=>({'apikey':cfg.supabaseAnonKey,'Content-Type':'application/json',...(state.accessToken?{'Authorization':`Bearer ${state.accessToken}`}:{})});
 const localKey=()=>`${KEY}:${state.user?.id||'guest'}`;
 const protectedKey=uid=>`${KEY}:verified-cloud:${uid}`;
@@ -204,8 +227,7 @@ async function rate(rating){
    await syncEntries(progress,[event]);saveVerifiedCloud();
  }).catch(err=>{
    console.warn('Cloud sync failed:',err);
-   $('study-notice').textContent='Облачная запись временно недоступна. Локальная копия сохранена.';
-   $('study-notice').classList.remove('hidden');
+   markCloudRepairNeeded('Облачная запись временно недоступна. Локальные ответы сохранены; повторная отправка запланирована.');
  });
  await progressSyncQueue;
 }
@@ -379,6 +401,7 @@ function eventUUID(x){
 }
 async function loadCloud({throwOnError=false}={}){
   if(!state.user)return;
+  if(cloudLoading){if(throwOnError)throw new Error('Синхронизация уже выполняется.');return;}
   cloudLoading=true;
   try{
     const uid=encodeURIComponent(state.user.id);
@@ -386,6 +409,7 @@ async function loadCloud({throwOnError=false}={}){
       readAllRows(api,`/rest/v1/word_progress?user_id=eq.${uid}&select=word_id,state&order=word_id.asc`),
       readAllRows(api,`/rest/v1/review_history?user_id=eq.${uid}&select=event_id,word_id,rating,answered_at,extra&order=answered_at.asc,event_id.asc`)
     ]);
+    const cloudEventIds=new Set((events||[]).map(event=>event.event_id));
     const localNewer={};
     for(const row of rows||[]){
       const local=state.progress[row.word_id];
@@ -398,10 +422,20 @@ async function loadCloud({throwOnError=false}={}){
     for(const e of events||[]){const entry={id:e.word_id,at:Date.parse(e.answered_at),rating:e.rating,extra:e.extra};if(Number.isFinite(entry.at)&&!seen.has(e.event_id)){state.history.push(entry);seen.add(e.event_id);}}
     try{const flagRows=await readAllRows(api,`/rest/v1/word_flags?user_id=eq.${uid}&select=word_id,flag,enabled,updated_at,ru,es&order=word_id.asc,flag.asc`);const remoteFlags={};for(const r of flagRows||[]){remoteFlags[r.word_id]??={snapshot:{id:r.word_id,ru:r.ru,es:r.es}};remoteFlags[r.word_id][r.flag]={enabled:r.enabled,at:Date.parse(r.updated_at)||0};}const flagUpdates=[];for(const [id,tags] of Object.entries(state.flags))for(const tag of ['fix','repeat'])if(tags?.[tag]&&tags[tag].at>(remoteFlags[id]?.[tag]?.at||0))flagUpdates.push([id,tag]);state.flags=mergeFlagMaps(state.flags,remoteFlags);updateFlagCounts();for(const [id,tag] of flagUpdates)await pushFlag(id,tag);}catch(e){console.warn('Word flags unavailable; run migration SQL',e);$('study-notice').textContent='Синхронизация отметок пока не настроена: требуется word-flags-migration.sql';$('study-notice').classList.remove('hidden');}
     state.history.sort((a,b)=>a.at-b.at);
+    // The complete local journal is a durable outbox: repair all attempts that
+    // never reached Supabase, including failures from older app versions.
+    const unsent=missingCloudEvents(state.history,cloudEventIds,eventUUID);
     saveVerifiedCloud();
     saveLocal();if(!state.session)renderStudy();else renderStats();renderHistory();
-    await syncEntries(localNewer,[]);saveVerifiedCloud();
-  }catch(e){console.warn('Cloud load failed:',e);$('study-notice').textContent=`Облачная синхронизация недоступна: ${e.message}. Локальные ответы сохранены.`;$('study-notice').classList.remove('hidden');if(throwOnError)throw e;}finally{cloudLoading=false;}
+    await syncEntries(localNewer,unsent);
+    saveVerifiedCloud();
+    needsCloudRepair=false;
+    if(cloudRetryTimer!==null){clearTimeout(cloudRetryTimer);cloudRetryTimer=null;}
+    if($('study-notice').textContent.includes('повторная отправка')||$('study-notice').textContent.startsWith('Облачная синхронизация недоступна'))$('study-notice').classList.add('hidden');
+  }catch(e){console.warn('Cloud load failed:',e);
+    markCloudRepairNeeded(`Облачная синхронизация недоступна: ${e.message}. Локальные ответы сохранены; повторная отправка запланирована.`);
+    if(throwOnError)throw e;
+  }finally{cloudLoading=false;}
 }
 async function pushFlag(id,tag){if(!state.user||!state.flags[id]?.[tag])return;const f=state.flags[id][tag],w=flagWord(id)||{ru:'',es:''};const latest=await api(`/rest/v1/word_flags?user_id=eq.${encodeURIComponent(state.user.id)}&word_id=eq.${encodeURIComponent(id)}&flag=eq.${tag}&select=enabled,updated_at,ru,es`);if(latest?.[0]&&Date.parse(latest[0].updated_at)>f.at){state.flags[id][tag]={enabled:latest[0].enabled,at:Date.parse(latest[0].updated_at)};saveLocal();updateFlagCounts();return;}await api('/rest/v1/word_flags?on_conflict=user_id,word_id,flag',{method:'POST',headers:{Prefer:'resolution=merge-duplicates'},body:JSON.stringify({user_id:state.user.id,word_id:id,flag:tag,enabled:f.enabled,updated_at:new Date(f.at).toISOString(),ru:w.ru,es:w.es})});}
 async function syncFlags(){for(const [id,flags] of Object.entries(state.flags))for(const tag of ['fix','repeat'])if(flags?.[tag])await pushFlag(id,tag);}
@@ -426,7 +460,7 @@ async function syncProgress(id){
 async function syncAll(){
   if(!state.user)return;
   // Always merge cloud before importing older backups; never overwrite newer values.
-  try{await loadCloud({throwOnError:true});await syncEntries(state.progress,state.history);await syncFlags();saveVerifiedCloud();note('import-message','Прогресс и история синхронизированы с облаком.');}
+  try{await loadCloud({throwOnError:true});await syncFlags();saveVerifiedCloud();note('import-message','Прогресс и история синхронизированы с облаком.');}
   catch(e){note('import-message',`Локальный импорт сохранён, ошибка синхронизации: ${e.message}`);}
 }
 async function init(){loadLocal();renderSettings();if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js').catch(console.warn);
