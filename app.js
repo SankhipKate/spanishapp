@@ -1,9 +1,9 @@
-import {parseCSV,toWords,parseSheetUrl,recordRating,createSession,nextInSession,rateInSession,dueCounts,compareLetters,recoverLegacyProgress,localDayKey,isDueOnCalendarDay,scheduledReviews,todayTrainingStats,dailyRatingStats} from './engine.mjs?v=30';
-import {readApiResponse,readAllRows} from './cloud-api.mjs?v=30';
-import {mergeReviewMaps,mergeHistoryEvents as mergeHistoryEventsCore} from './sync-merge.mjs?v=30';
-import {mergeFlagMaps} from './word-flags.mjs?v=30';
+import {parseCSV,toWords,parseSheetUrl,recordRating,createSession,copySession,nextInSession,rateInSession,dueCounts,compareLetters,recoverLegacyProgress,localDayKey,isDueOnCalendarDay,scheduledReviews,todayTrainingStats,dailyRatingStats} from './engine.mjs?v=31';
+import {readApiResponse,readAllRows} from './cloud-api.mjs?v=31';
+import {mergeReviewMaps,mergeHistoryEvents as mergeHistoryEventsCore} from './sync-merge.mjs?v=31';
+import {mergeFlagMaps} from './word-flags.mjs?v=31';
 const $=id=>document.getElementById(id), cfg=window.APP_CONFIG||{};
-const APP_VERSION='0.30.0';
+const APP_VERSION='0.31.0';
 async function fetchPublishedVersion(){
  const response=await fetch(`./version.json?check=${Date.now()}`,{cache:'no-store'});
  if(!response.ok)throw new Error(`HTTP ${response.status}`);
@@ -32,7 +32,7 @@ $('check-app-update').addEventListener('click',checkAppUpdate);
 const KEY='palabras:v1';
 const DEMO=[['Русский','Испанский'],['дом','casa'],['сегодня','hoy'],['говорить','hablar'],['работать','trabajar'],['красивый','lindo, bonito'],['школа','escuela'],['вчера','ayer'],['утро','mañana'],['вода','agua'],['читать','leer']];
 let refreshTimer;
-const state={words:[],progress:{},sheet:'',range:'',reviewMode:'practice',session:null,accessToken:null,user:null,supabaseSession:null,googleToken:null,source:'',saving:null,history:[],legacy:null,flags:{},studyMode:'normal',wordFilter:'all',openedAt:Date.now()};
+const state={words:[],progress:{},sheet:'',range:'',reviewMode:'practice',session:null,displayedId:null,lastAnswer:null,correction:null,accessToken:null,user:null,supabaseSession:null,googleToken:null,source:'',saving:null,history:[],legacy:null,flags:{},studyMode:'normal',wordFilter:'all',openedAt:Date.now()};
 const hasBackend=!!(cfg.supabaseUrl&&cfg.supabaseAnonKey);
 let cloudLoading=false;
 const jsonHeaders=()=>({'apikey':cfg.supabaseAnonKey,'Content-Type':'application/json',...(state.accessToken?{'Authorization':`Bearer ${state.accessToken}`}:{})});
@@ -58,7 +58,7 @@ function loadLocal(){const s=storage();state.progress=s.progress||{};state.sheet
   // One-time migration from the existing per-word progress (without changing it).
   state.legacy=s.legacy||recoverLegacyProgress(state.progress,state.history);
   if(!s.legacy)saveLocal();
-  state.session=null;}
+  state.session=null;state.displayedId=null;state.lastAnswer=null;state.correction=null;}
 function note(id,message){$(id).textContent=message;}
 function focusAnswer(){
   // Wait for the current card to be inserted and visible.
@@ -88,8 +88,28 @@ function updateFlagCounts(){const repeat=Object.keys(state.flags).filter(id=>fla
 }
 for(const button of document.querySelectorAll('[data-word-filter]'))button.addEventListener('click',()=>{state.wordFilter=button.dataset.wordFilter;for(const b of document.querySelectorAll('[data-word-filter]'))b.classList.toggle('active',b===button);renderWords();});
 async function toggleFlag(word,tag){const old=state.flags[word.id]?.[tag];const was=!!old?.enabled;state.flags[word.id]??={};state.flags[word.id].snapshot={id:word.id,ru:word.ru,es:word.es,sheetRow:word.sheetRow};state.flags[word.id][tag]={enabled:!was,at:Date.now()};saveLocal();updateFlagCounts();renderWords();renderStudyFlags();if(state.user)try{await pushFlag(word.id,tag);}catch(err){console.warn('Failed to sync flag',err);$('study-notice').textContent='Отметка сохранена на этом устройстве; синхронизация не удалась.';$('study-notice').classList.remove('hidden');}}
-function renderStudyFlags(){const w=flagWord(state.session?.current);const target=$('study-flags');target.replaceChildren();if(!w)return;target.append(flagButton(w,'fix','Fix me'),flagButton(w,'repeat','Повторить'));}
-function setStudyMode(mode){state.studyMode=mode;state.session=null;$('normal-training').classList.toggle('active',mode==='normal');$('repeat-training').classList.toggle('active',mode==='repeat');$('study-mode-desc').textContent=mode==='repeat'?'Отдельная тренировка из отмеченных слов.':'Напиши перевод и оцени свой ответ.';renderStudy();}
+function renderStudyFlags(){
+ const word=flagWord(state.session?.current);
+ const fix=$('study-flags'),repeat=$('study-repeat');
+ fix.replaceChildren();repeat.replaceChildren();
+ if(word){fix.append(flagButton(word,'fix','Fix me'));repeat.append(flagButton(word,'repeat','Повторить'));}
+ $('previous-word').disabled=!state.lastAnswer||!!state.correction||cloudLoading;
+}
+function formatPrompt(value){
+ const el=$('prompt-word');el.replaceChildren();
+ const text=String(value||'').trim();const terms=text.split(/\s+/).filter(Boolean);
+ const lead=document.createElement('span');lead.className='prompt-lead';lead.textContent=terms.slice(0,2).join(' ');
+ if(terms.length===1){lead.classList.add('single-word');el.classList.add('is-single');}
+ else el.classList.remove('is-single');
+ el.append(lead);
+ if(terms.length>2){const rest=document.createElement('span');rest.className='prompt-rest';rest.textContent=terms.slice(2).join(' ');el.append(rest);}
+ if(terms.length===1)requestAnimationFrame(()=>{
+   if(!lead.isConnected)return;
+   let size=44;lead.style.fontSize=size+'px';
+   while(size>16&&lead.scrollWidth>el.clientWidth-4){size-=1;lead.style.fontSize=size+'px';}
+ });
+}
+function setStudyMode(mode){state.studyMode=mode;state.session=null;state.displayedId=null;state.lastAnswer=null;state.correction=null;$('normal-training').classList.toggle('active',mode==='normal');$('repeat-training').classList.toggle('active',mode==='repeat');$('study-mode-desc').textContent=mode==='repeat'?'Отдельная тренировка из отмеченных слов.':'Напиши перевод и оцени свой ответ.';renderStudy();}
 $('normal-training').onclick=()=>setStudyMode('normal');$('repeat-training').onclick=()=>setStudyMode('repeat');$('start-repeat').onclick=()=>{setStudyMode('repeat');showPage('study');};$('back-normal').onclick=()=>setStudyMode('normal');
 $('word-search').oninput=renderWords;
 function renderStats(){
@@ -112,11 +132,15 @@ function renderStudy(){renderStats();const trainingWords=state.studyMode==='repe
   $('repeat-finished').classList.add('hidden');const currentId=state.session.current;
   let word=state.words.find(w=>w.id===currentId);
   if(!word){state.session=createSession(state.words,state.progress,Date.now(),true);word=state.words.find(w=>w.id===nextInSession(state.session));if(!word){$('study-notice').textContent='Не удалось выбрать слово из словаря.';$('study-notice').classList.remove('hidden');return;}}
-  $('prompt-word').textContent=word.ru;$('answer-word').textContent=word.es;renderStudyFlags();
+   renderStudyFlags();
+   // A background sync can redraw the page; keep the currently displayed card and typed answer.
+   if(state.displayedId===currentId)return;
+   state.displayedId=currentId;
+   formatPrompt(word.ru);$('answer-word').textContent=word.es;
 
-  $('typed-answer').readOnly=false;$('typed-answer').value='';$('answer-compare').replaceChildren();$('answer-compare').classList.add('hidden');$('revealed-area').classList.add('hidden');$('reveal').classList.remove('hidden');focusAnswer();
+   $('typed-answer').readOnly=false;$('typed-answer').value='';$('answer-compare').replaceChildren();$('answer-compare').classList.add('hidden');$('revealed-area').classList.add('hidden');$('reveal').classList.remove('hidden');focusAnswer();
 }
-function beginNew(){state.session=null;renderStudy();}
+function beginNew(){state.session=null;state.displayedId=null;state.lastAnswer=null;state.correction=null;renderStudy();}
 function renderLetterDiff(typed,expected){
  const ref=$('answer-word');ref.replaceChildren();
  if(!typed){ref.textContent=expected;return;}
@@ -139,7 +163,52 @@ document.addEventListener('keydown',e=>{
  if(!$('reveal').classList.contains('hidden'))$('reveal').click();
  else if(!$('revealed-area').classList.contains('hidden'))$('rate-easy').click();
 });
-async function rate(rating){if(cloudLoading)return;const s=state.session;if(!s?.current)return;const result=rateInSession(s,rating);const special=state.studyMode==='repeat';if(!special&&result.save)state.progress[result.id]=recordRating(state.progress[result.id],rating);state.history.push({at:Date.now(),id:result.id,rating,extra:special||!result.save});saveLocal();renderStudy();await syncProgress(result.id);}
+function returnToPrevious(){
+ const last=state.lastAnswer;
+ if(!last||cloudLoading||state.correction)return;
+ state.correction=last;state.lastAnswer=null;
+ state.session=copySession(last.beforeSession);state.displayedId=null;
+ renderStudy();
+ if(state.session?.current!==last.id)return;
+ $('typed-answer').value=last.typed;
+ $('answer-word').textContent=last.expected;
+ renderLetterDiff(last.typed,last.expected);
+ $('typed-answer').readOnly=true;
+ $('reveal').classList.add('hidden');$('revealed-area').classList.remove('hidden');
+}
+$('previous-word').onclick=returnToPrevious;
+let progressSyncQueue=Promise.resolve();
+async function rate(rating){
+ if(cloudLoading)return;
+ const s=state.session;if(!s?.current)return;
+ const correction=state.correction;
+ const beforeSession=copySession(s);
+ const id=s.current;
+ const beforeProgress=correction?correction.beforeProgress:state.progress[id];
+ const typed=correction?correction.typed:$('typed-answer').value.trim();
+ const word=state.words.find(w=>w.id===id);
+ const at=Math.max(Date.now(),(correction?.at||0)+1,(state.progress[id]?.updated||0)+1);
+ const result=rateInSession(s,rating),special=state.studyMode==='repeat';
+ const save=!special&&(result.save||!!correction?.saved);
+ if(save)state.progress[id]=recordRating(beforeProgress,rating,at);
+ const event={at,id,rating,extra:special||!save};
+ state.history.push(event);
+ state.correction=null;
+ state.lastAnswer={id,beforeSession,beforeProgress,typed,expected:word?.es||'',at,saved:save};
+ state.displayedId=null;
+ saveLocal();renderStudy();
+ // Serialize cloud writes: an earlier slow request must not overwrite a correction.
+ const progress=save?{[id]:{...state.progress[id]}}:{};
+ progressSyncQueue=progressSyncQueue.catch(()=>{}).then(async()=>{
+   if(!state.user)return;
+   await syncEntries(progress,[event]);saveVerifiedCloud();
+ }).catch(err=>{
+   console.warn('Cloud sync failed:',err);
+   $('study-notice').textContent='Облачная запись временно недоступна. Локальная копия сохранена.';
+   $('study-notice').classList.remove('hidden');
+ });
+ await progressSyncQueue;
+}
 $('rate-again').onclick=()=>rate('again');$('rate-hard').onclick=()=>rate('hard');$('rate-easy').onclick=()=>rate('easy');
 function renderHistory(){
  renderStats();
@@ -330,7 +399,7 @@ async function loadCloud({throwOnError=false}={}){
     try{const flagRows=await readAllRows(api,`/rest/v1/word_flags?user_id=eq.${uid}&select=word_id,flag,enabled,updated_at,ru,es&order=word_id.asc,flag.asc`);const remoteFlags={};for(const r of flagRows||[]){remoteFlags[r.word_id]??={snapshot:{id:r.word_id,ru:r.ru,es:r.es}};remoteFlags[r.word_id][r.flag]={enabled:r.enabled,at:Date.parse(r.updated_at)||0};}const flagUpdates=[];for(const [id,tags] of Object.entries(state.flags))for(const tag of ['fix','repeat'])if(tags?.[tag]&&tags[tag].at>(remoteFlags[id]?.[tag]?.at||0))flagUpdates.push([id,tag]);state.flags=mergeFlagMaps(state.flags,remoteFlags);updateFlagCounts();for(const [id,tag] of flagUpdates)await pushFlag(id,tag);}catch(e){console.warn('Word flags unavailable; run migration SQL',e);$('study-notice').textContent='Синхронизация отметок пока не настроена: требуется word-flags-migration.sql';$('study-notice').classList.remove('hidden');}
     state.history.sort((a,b)=>a.at-b.at);
     saveVerifiedCloud();
-    saveLocal();beginNew();renderHistory();
+    saveLocal();if(!state.session)renderStudy();else renderStats();renderHistory();
     await syncEntries(localNewer,[]);saveVerifiedCloud();
   }catch(e){console.warn('Cloud load failed:',e);$('study-notice').textContent=`Облачная синхронизация недоступна: ${e.message}. Локальные ответы сохранены.`;$('study-notice').classList.remove('hidden');if(throwOnError)throw e;}finally{cloudLoading=false;}
 }
@@ -360,8 +429,8 @@ async function syncAll(){
   try{await loadCloud({throwOnError:true});await syncEntries(state.progress,state.history);await syncFlags();saveVerifiedCloud();note('import-message','Прогресс и история синхронизированы с облаком.');}
   catch(e){note('import-message',`Локальный импорт сохранён, ошибка синхронизации: ${e.message}`);}
 }
-async function init(){loadLocal();renderSettings();renderStudy();if(state.sheet&&state.source!=='sheet')refreshSheet();if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js').catch(console.warn);
+async function init(){loadLocal();renderSettings();if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js').catch(console.warn);
 
-  if(hasBackend)await restoreAuth();updateFlagCounts();if(Object.values(state.flags).some(v=>v.repeat?.enabled))setStudyMode('repeat');
+  if(hasBackend)await restoreAuth();updateFlagCounts();if(state.sheet&&state.source!=='sheet')await refreshSheet();renderStudy();
 }
 init();
