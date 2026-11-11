@@ -1,10 +1,10 @@
-import {parseCSV,toWords,parseSheetUrl,recordRating,createSession,copySession,nextInSession,rateInSession,dueCounts,compareLetters,recoverLegacyProgress,localDayKey,isDueOnCalendarDay,scheduledReviews,todayTrainingStats,dailyRatingStats} from './engine.mjs?v=32';
+import {parseCSV,toWords,parseSheetUrl,recordRating,recordAssessment,searchKey,createSession,copySession,nextInSession,rateInSession,dueCounts,compareLetters,recoverLegacyProgress,localDayKey,isDueOnCalendarDay,scheduledReviews,todayTrainingStats,dailyRatingStats} from './engine.mjs?v=34';
 import {readApiResponse,readAllRows} from './cloud-api.mjs?v=32';
 import {mergeReviewMaps,mergeHistoryEvents as mergeHistoryEventsCore} from './sync-merge.mjs?v=32';
-import {mergeFlagMaps} from './word-flags.mjs?v=32';
+import {mergeFlagMaps} from './word-flags.mjs?v=34';
 import {missingCloudEvents} from './sync-outbox.mjs?v=32';
 const $=id=>document.getElementById(id), cfg=window.APP_CONFIG||{};
-const APP_VERSION='0.33.0';
+const APP_VERSION='0.34.0';
 async function fetchPublishedVersion(){
  const response=await fetch(`./version.json?check=${Date.now()}`,{cache:'no-store'});
  if(!response.ok)throw new Error(`HTTP ${response.status}`);
@@ -93,29 +93,29 @@ $('go-settings').onclick=()=>showPage('settings');
 function renderSettings(){$('sheet-url').value=state.sheet;$('sheet-range').value=state.range;$('review-mode').value=state.reviewMode;$('google-sheet-auth').classList.toggle('hidden',!cfg.googleOAuthClientId);}
 function flagActive(id,flag){return !!state.flags[id]?.[flag]?.enabled;}
 function flagWord(id){return state.words.find(w=>w.id===id)||state.flags[id]?.snapshot||null;}
-function flagButton(word,flag,label){const button=document.createElement('button');button.type='button';button.className='flag-button'+(flagActive(word.id,flag)?' selected':'');button.textContent=flag==='fix'?'✎':'↻';button.setAttribute('aria-label',`${flagActive(word.id,flag)?'Убрать из':'Добавить в'} ${label}: ${word.ru}`);button.title=label;button.setAttribute('aria-pressed',String(flagActive(word.id,flag)));button.onclick=()=>toggleFlag(word,flag);return button;}
+function flagButton(word,flag,label){const button=document.createElement('button');button.type='button';button.className='flag-button'+(flagActive(word.id,flag)?' selected':'');button.textContent=flag==='fix'?'✎':flag==='repeat'?'↻':'✓';button.setAttribute('aria-label',`${flagActive(word.id,flag)?'Убрать из':'Добавить в'} ${label}: ${word.ru}`);button.title=label;button.setAttribute('aria-pressed',String(flagActive(word.id,flag)));button.onclick=()=>toggleFlag(word,flag);return button;}
 function sheetEditLink(word){if(!state.sheet)return null;const link=document.createElement('a');try{const parsed=parseSheetUrl(state.sheet);link.href=`https://docs.google.com/spreadsheets/d/${parsed.id}/edit#gid=${parsed.gid}${word.sheetRow?'&range=A'+word.sheetRow+':B'+word.sheetRow:''}`;}catch{link.href=state.sheet;}link.target='_blank';link.rel='noopener noreferrer';link.textContent='Открыть таблицу ↗';link.className='sheet-edit-link';link.title='Найти и исправить слово в Google Таблице';return link;}
-function renderWords(){const q=$('word-search').value.trim().toLowerCase();const list=state.wordFilter==='all'?state.words:Object.entries(state.flags).filter(([,v])=>v[state.wordFilter]?.enabled).map(([id])=>flagWord(id)).filter(Boolean);
- const filtered=list.filter(w=>!q||`${w.ru} ${w.es}`.toLowerCase().includes(q));$('words-empty').classList.toggle('hidden',!!filtered.length);const body=$('words-table');body.replaceChildren();
+function renderWords(){const q=searchKey($('word-search').value.trim());const list=state.wordFilter==='all'?state.words:Object.entries(state.flags).filter(([,v])=>v[state.wordFilter]?.enabled).map(([id])=>flagWord(id)).filter(Boolean);
+ const filtered=list.filter(w=>!q||searchKey(`${w.ru} ${w.es}`).includes(q));$('words-empty').classList.toggle('hidden',!!filtered.length);const body=$('words-table');body.replaceChildren();
  for(const w of filtered.slice(0,1000)){
   const tr=document.createElement('tr');for(const val of [w.ru,w.es]){const td=document.createElement('td');td.textContent=val;tr.append(td);}
-  const actions=document.createElement('td');actions.className='word-actions';actions.append(flagButton(w,'fix','Fix me'),flagButton(w,'repeat','Повторить'));
+  const actions=document.createElement('td');actions.className='word-actions';actions.append(flagButton(w,'fix','Fix me'),flagButton(w,'repeat','Повторить'),flagButton(w,'mastered','Знаю окончательно'));
   if(state.wordFilter==='fix'){const link=sheetEditLink(w);if(link)actions.append(link);}
   tr.append(actions);body.append(tr);
  }
  updateFlagCounts();
 }
-function updateFlagCounts(){const repeat=Object.keys(state.flags).filter(id=>flagActive(id,'repeat')).length;const fix=Object.keys(state.flags).filter(id=>flagActive(id,'fix')).length;
- $('fix-count').textContent=fix;$('repeat-count').textContent=repeat;$('start-repeat').disabled=!repeat;
+function updateFlagCounts(){const repeat=Object.keys(state.flags).filter(id=>flagActive(id,'repeat')).length;const fix=Object.keys(state.flags).filter(id=>flagActive(id,'fix')).length;const mastered=state.words.filter(w=>flagActive(w.id,'mastered')).length;
+ $('fix-count').textContent=fix;$('repeat-count').textContent=repeat;$('mastered-count').textContent=mastered;$('p-mastered').textContent=mastered;$('start-repeat').disabled=!repeat;
  $('repeat-training-count').textContent=repeat;
 }
 for(const button of document.querySelectorAll('[data-word-filter]'))button.addEventListener('click',()=>{state.wordFilter=button.dataset.wordFilter;for(const b of document.querySelectorAll('[data-word-filter]'))b.classList.toggle('active',b===button);renderWords();});
-async function toggleFlag(word,tag){const old=state.flags[word.id]?.[tag];const was=!!old?.enabled;state.flags[word.id]??={};state.flags[word.id].snapshot={id:word.id,ru:word.ru,es:word.es,sheetRow:word.sheetRow};state.flags[word.id][tag]={enabled:!was,at:Date.now()};saveLocal();updateFlagCounts();renderWords();renderStudyFlags();if(state.user)try{await pushFlag(word.id,tag);}catch(err){console.warn('Failed to sync flag',err);$('study-notice').textContent='Отметка сохранена на этом устройстве; синхронизация не удалась.';$('study-notice').classList.remove('hidden');}}
+async function toggleFlag(word,tag){const old=state.flags[word.id]?.[tag];const was=!!old?.enabled;state.flags[word.id]??={};state.flags[word.id].snapshot={id:word.id,ru:word.ru,es:word.es,sheetRow:word.sheetRow};state.flags[word.id][tag]={enabled:!was,at:Date.now()};saveLocal();if(tag==='mastered'){state.session=null;state.displayedId=null;renderStudy();renderHistory();}updateFlagCounts();renderWords();renderStudyFlags();if(state.user)try{await pushFlag(word.id,tag);}catch(err){console.warn('Failed to sync flag',err);$('study-notice').textContent='Отметка сохранена на этом устройстве; синхронизация не удалась.';$('study-notice').classList.remove('hidden');}}
 function renderStudyFlags(){
  const word=flagWord(state.session?.current);
  const fix=$('study-flags'),repeat=$('study-repeat');
  fix.replaceChildren();repeat.replaceChildren();
- if(word){fix.append(flagButton(word,'fix','Fix me'));repeat.append(flagButton(word,'repeat','Повторить'));}
+ if(word){fix.append(flagButton(word,'fix','Fix me'),flagButton(word,'mastered','Знаю окончательно'));repeat.append(flagButton(word,'repeat','Повторить'));}
  $('previous-word').disabled=!state.lastAnswer||!!state.correction||cloudLoading;
 }
 function formatPrompt(value){
@@ -137,8 +137,8 @@ function setStudyMode(mode){state.studyMode=mode;state.session=null;state.displa
 $('normal-training').onclick=()=>setStudyMode('normal');$('repeat-training').onclick=()=>setStudyMode('repeat');$('start-repeat').onclick=()=>{setStudyMode('repeat');showPage('study');};$('back-normal').onclick=()=>setStudyMode('normal');
 $('word-search').oninput=renderWords;
 function renderStats(){
- const c=dueCounts(state.words,state.progress);
- $('total-words').textContent=c.total;
+ const c=dueCounts(state.words.filter(w=>!flagActive(w.id,'mastered')),state.progress);
+ $('total-words').textContent=state.words.length;
 
  $('new-words').textContent=c.new;
  // Training figures cover today's distinct words and their last rating today.
@@ -148,14 +148,14 @@ function renderStats(){
  $('study-hard').textContent=today.hard;
  $('study-again').textContent=today.again;
 }
-function renderStudy(){renderStats();const trainingWords=state.studyMode==='repeat'?state.words.filter(w=>flagActive(w.id,'repeat')):state.words;const active=trainingWords.length>0;if(!active&&state.studyMode==='repeat'){$('study-empty').querySelector('h2').textContent='Список «Повторить» пуст';$('study-empty').querySelector('p').textContent='Добавь слова через ↻ в тренировке или словаре.';}else{$('study-empty').querySelector('h2').textContent='Подключи словарь';$('study-empty').querySelector('p').textContent='Добавь ссылку на Google Таблицу в настройках или попробуй демонстрационный набор.';}$('study-empty').classList.toggle('hidden',active);$('study-card').classList.toggle('hidden',!active);if(!active){$('repeat-finished').classList.add('hidden');return;}
-  if(!state.session)state.session=state.studyMode==='repeat'?createSession(trainingWords,{},Date.now(),false):createSession(trainingWords,state.progress,Date.now(),true);
-  if(!Array.isArray(state.session.queue))state.session=state.studyMode==='repeat'?createSession(trainingWords,{},Date.now(),false):createSession(trainingWords,state.progress,Date.now(),true);
+function renderStudy(){renderStats();const trainingWords=state.studyMode==='repeat'?state.words.filter(w=>flagActive(w.id,'repeat')&&!flagActive(w.id,'mastered')):state.words.filter(w=>!flagActive(w.id,'mastered'));const active=trainingWords.length>0;if(!active&&state.studyMode==='repeat'){$('study-empty').querySelector('h2').textContent='Список «Повторить» пуст';$('study-empty').querySelector('p').textContent='Добавь слова через ↻ в тренировке или словаре.';}else{$('study-empty').querySelector('h2').textContent=state.words.length?'Все слова отмечены ✓ Знаю':'Подключи словарь';$('study-empty').querySelector('p').textContent=state.words.length?'Можно снять отметку ✓ в словаре, чтобы вернуть слово в тренировку.':'Добавь ссылку на Google Таблицу в настройках или попробуй демонстрационный набор.';}$('study-empty').classList.toggle('hidden',active);$('study-card').classList.toggle('hidden',!active);if(!active){$('repeat-finished').classList.add('hidden');return;}
+  if(!state.session)state.session=state.studyMode==='repeat'?createSession(trainingWords,{},Date.now(),false):createSession(trainingWords,state.progress,Date.now(),state.reviewMode==='practice');
+  if(!Array.isArray(state.session.queue))state.session=state.studyMode==='repeat'?createSession(trainingWords,{},Date.now(),false):createSession(trainingWords,state.progress,Date.now(),state.reviewMode==='practice');
   const id=nextInSession(state.session);
-  if(!id){if(state.studyMode==='repeat'){$('study-card').classList.add('hidden');$('repeat-finished').classList.remove('hidden');renderStudyFlags();return;}state.session=createSession(trainingWords,state.progress,Date.now(),true);const restarted=nextInSession(state.session);if(!restarted){$('study-card').classList.add('hidden');$('study-notice').textContent='Не удалось выбрать слово. Обнови словарь в настройках.';$('study-notice').classList.remove('hidden');return;}}
+  if(!id){if(state.studyMode==='repeat'){ $('repeat-finished').querySelector('h2').textContent='Повторение завершено';$('study-card').classList.add('hidden');$('repeat-finished').classList.remove('hidden');renderStudyFlags();return;}$('study-card').classList.add('hidden');$('repeat-finished').classList.remove('hidden');$('repeat-finished').querySelector('h2').textContent='На сегодня всё';return;}
   $('repeat-finished').classList.add('hidden');const currentId=state.session.current;
   let word=state.words.find(w=>w.id===currentId);
-  if(!word){state.session=createSession(state.words,state.progress,Date.now(),true);word=state.words.find(w=>w.id===nextInSession(state.session));if(!word){$('study-notice').textContent='Не удалось выбрать слово из словаря.';$('study-notice').classList.remove('hidden');return;}}
+  if(!word){state.session=createSession(trainingWords,state.progress,Date.now(),state.reviewMode==='practice');word=state.words.find(w=>w.id===nextInSession(state.session));if(!word){$('study-notice').textContent='Не удалось выбрать слово из словаря.';$('study-notice').classList.remove('hidden');return;}}
    renderStudyFlags();
    // A background sync can redraw the page; keep the currently displayed card and typed answer.
    if(state.displayedId===currentId)return;
@@ -213,9 +213,9 @@ async function rate(rating){
  const word=state.words.find(w=>w.id===id);
  const at=Math.max(Date.now(),(correction?.at||0)+1,(state.progress[id]?.updated||0)+1);
  const result=rateInSession(s,rating),special=state.studyMode==='repeat';
- const save=!special&&(result.save||!!correction?.saved);
- if(save)state.progress[id]=recordRating(beforeProgress,rating,at);
- const event={at,id,rating,extra:special||!save};
+ const save=!special;
+ if(save)state.progress[id]=result.extra&&rating!=='again'?recordAssessment(beforeProgress,rating,at):recordRating(beforeProgress,rating,at);
+ const event={at,id,rating,extra:special||result.extra};
  state.history.push(event);
  state.correction=null;
  state.lastAnswer={id,beforeSession,beforeProgress,typed,expected:word?.es||'',at,saved:save};
@@ -234,7 +234,7 @@ async function rate(rating){
 }
 $('rate-again').onclick=()=>rate('again');$('rate-hard').onclick=()=>rate('hard');$('rate-easy').onclick=()=>rate('easy');
 function renderHistory(){
- renderStats();
+ renderStats();updateFlagCounts();
  const currentWordIds=new Set(state.words.map(w=>w.id));
  const reviewed=Object.entries(state.progress).filter(([id,r])=>currentWordIds.has(id)&&r&&Number.isFinite(r.updated)&&r.updated>0);
  const ratings={again:0,hard:0,easy:0};
@@ -253,16 +253,16 @@ function renderHistory(){
  }
  for(const oldDay of state.legacy?.days||[])getDay(oldDay);
 
- const counts=dueCounts(state.words,state.progress);
+ const counts=dueCounts(state.words.filter(w=>!flagActive(w.id,'mastered')),state.progress);
  const learned=counts.total-counts.new;
  $('p-learned').textContent=learned;
  $('p-hard').textContent=ratings.hard;
  $('p-easy').textContent=ratings.easy;
  $('p-again').textContent=ratings.again;
- const total=counts.total;const percent=total?Math.round(learned/total*100):0;
+ const total=state.words.length;const percent=total?Math.round((learned+state.words.filter(w=>flagActive(w.id,'mastered')).length)/total*100):0;
  $('learned-progress-fill').style.width=`${Math.min(percent,100)}%`;
  $('learned-progress-bar').setAttribute('aria-valuenow',Math.min(percent,100));
- $('learned-progress-caption').textContent=`Изучено ${learned} из ${total} слов · ${percent}%`;
+ $('learned-progress-caption').textContent=`Изучено ${learned} + отмечено ✓ ${state.words.filter(w=>flagActive(w.id,'mastered')).length} из ${total} слов · ${percent}%`;
  $('p-days').textContent=`${buckets.size} ${plural(buckets.size,'день','дня','дней')} занятий`;
  const root=$('history-list');root.replaceChildren();
  const sorted=[...buckets].sort((a,b)=>b[0].localeCompare(a[0]));
@@ -281,7 +281,7 @@ function renderHistory(){
  if(!sorted.length){const empty=document.createElement('p');empty.className='muted';empty.textContent='После первой тренировки здесь появятся результаты.';root.append(empty);}
  $('history-note').textContent='';
  const schedule=$('schedule-list');schedule.replaceChildren();
- const scheduled=scheduledReviews(state.words,state.progress);
+ const scheduled=scheduledReviews(state.words.filter(w=>!flagActive(w.id,'mastered')),state.progress);
  const today=localDayKey(Date.now());
  const items=[[today,scheduled.today],...scheduled.dates];
  for(const [key,num] of items){const line=document.createElement('div');line.className='schedule-row';
@@ -421,7 +421,7 @@ async function loadCloud({throwOnError=false}={}){
     for(const [id,v] of Object.entries(state.progress))if(!cloudIDs.has(id))localNewer[id]=v;
     const seen=new Set(state.history.map(eventUUID));
     for(const e of events||[]){const entry={id:e.word_id,at:Date.parse(e.answered_at),rating:e.rating,extra:e.extra};if(Number.isFinite(entry.at)&&!seen.has(e.event_id)){state.history.push(entry);seen.add(e.event_id);}}
-    try{const flagRows=await readAllRows(api,`/rest/v1/word_flags?user_id=eq.${uid}&select=word_id,flag,enabled,updated_at,ru,es&order=word_id.asc,flag.asc`);const remoteFlags={};for(const r of flagRows||[]){remoteFlags[r.word_id]??={snapshot:{id:r.word_id,ru:r.ru,es:r.es}};remoteFlags[r.word_id][r.flag]={enabled:r.enabled,at:Date.parse(r.updated_at)||0};}const flagUpdates=[];for(const [id,tags] of Object.entries(state.flags))for(const tag of ['fix','repeat'])if(tags?.[tag]&&tags[tag].at>(remoteFlags[id]?.[tag]?.at||0))flagUpdates.push([id,tag]);state.flags=mergeFlagMaps(state.flags,remoteFlags);updateFlagCounts();for(const [id,tag] of flagUpdates)await pushFlag(id,tag);}catch(e){console.warn('Word flags unavailable; run migration SQL',e);$('study-notice').textContent='Синхронизация отметок пока не настроена: требуется word-flags-migration.sql';$('study-notice').classList.remove('hidden');}
+    try{const flagRows=await readAllRows(api,`/rest/v1/word_flags?user_id=eq.${uid}&select=word_id,flag,enabled,updated_at,ru,es&order=word_id.asc,flag.asc`);const remoteFlags={};for(const r of flagRows||[]){remoteFlags[r.word_id]??={snapshot:{id:r.word_id,ru:r.ru,es:r.es}};remoteFlags[r.word_id][r.flag]={enabled:r.enabled,at:Date.parse(r.updated_at)||0};}const flagUpdates=[];for(const [id,tags] of Object.entries(state.flags))for(const tag of ['fix','repeat','mastered'])if(tags?.[tag]&&tags[tag].at>(remoteFlags[id]?.[tag]?.at||0))flagUpdates.push([id,tag]);state.flags=mergeFlagMaps(state.flags,remoteFlags);updateFlagCounts();if(state.session?.words?.some(id=>flagActive(id,'mastered'))){state.session=null;state.displayedId=null;}for(const [id,tag] of flagUpdates)await pushFlag(id,tag);}catch(e){console.warn('Word flags unavailable; run migration SQL',e);$('study-notice').textContent='Синхронизация отметок пока не настроена: требуется word-flags-migration.sql';$('study-notice').classList.remove('hidden');}
     state.history.sort((a,b)=>a.at-b.at);
     // The complete local journal is a durable outbox: repair all attempts that
     // never reached Supabase, including failures from older app versions.
@@ -439,7 +439,7 @@ async function loadCloud({throwOnError=false}={}){
   }finally{cloudLoading=false;}
 }
 async function pushFlag(id,tag){if(!state.user||!state.flags[id]?.[tag])return;const f=state.flags[id][tag],w=flagWord(id)||{ru:'',es:''};const latest=await api(`/rest/v1/word_flags?user_id=eq.${encodeURIComponent(state.user.id)}&word_id=eq.${encodeURIComponent(id)}&flag=eq.${tag}&select=enabled,updated_at,ru,es`);if(latest?.[0]&&Date.parse(latest[0].updated_at)>f.at){state.flags[id][tag]={enabled:latest[0].enabled,at:Date.parse(latest[0].updated_at)};saveLocal();updateFlagCounts();return;}await api('/rest/v1/word_flags?on_conflict=user_id,word_id,flag',{method:'POST',headers:{Prefer:'resolution=merge-duplicates'},body:JSON.stringify({user_id:state.user.id,word_id:id,flag:tag,enabled:f.enabled,updated_at:new Date(f.at).toISOString(),ru:w.ru,es:w.es})});}
-async function syncFlags(){for(const [id,flags] of Object.entries(state.flags))for(const tag of ['fix','repeat'])if(flags?.[tag])await pushFlag(id,tag);}
+async function syncFlags(){for(const [id,flags] of Object.entries(state.flags))for(const tag of ['fix','repeat','mastered'])if(flags?.[tag])await pushFlag(id,tag);}
 async function syncEntries(progress,events){
   if(!state.user)return;
   const uid=state.user.id;

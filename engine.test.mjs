@@ -12,7 +12,16 @@ test('missed word returns after five other answers, including a second miss',()=
  assert.equal(nextInSession(q),'A');rateInSession(q,'hard');assert.equal(nextInSession(q),'L');
 });
 test('hard and easy have distinct intervals; again is due now',()=>{const now=100000;const hard=recordRating(null,'hard',now),easy=recordRating(null,'easy',now),again=recordRating(null,'again',now);assert.ok(hard.due<easy.due);assert.equal(again.due,now);assert.equal(dueCounts([{id:'a',ru:'a',es:'a'}],{a:again},now).due,1);});
-test('extra practice does not request a scheduled update for successful answers',()=>{const s=createSession([{id:'a'}],{},1000,true);nextInSession(s);rateInSession(s,'easy');assert.equal(nextInSession(s),'a');const result=rateInSession(s,'easy');assert.equal(result.save,false);});
+test('extra practice ends after a successful answer without updating the schedule',()=>{
+ const s=createSession([{id:'a'}],{},1000,true);
+ assert.equal(nextInSession(s),'a');
+ rateInSession(s,'hard');
+ assert.equal(nextInSession(s),'a');
+ const result=rateInSession(s,'easy');
+ assert.equal(result.save,false);
+ assert.equal(result.extra,true);
+ assert.equal(nextInSession(s),null);
+});
 
 test('existing Google columns map Spanish A to Russian B and first verb form only',()=>{
  const words=toWords([['Дубликаты','Перевод'],['abrir/abro/abres/abre','открывать'],['a la derecha','справа']]);
@@ -30,13 +39,6 @@ test('new and due words are randomized independently of their source order',()=>
  assert.deepEqual(s.queue.slice(0,2),['B','A']);
  assert.notDeepEqual(s.queue.slice(2),['C','D','E','F']);
  assert.equal(new Set(s.queue).size,words.length);
-});
-test('extra practice shuffles each pass and avoids same word across pass boundary',()=>{
- const s=createSession(['A','B','C','D'].map(id=>({id})),{},1000,true,()=>0);
- for(let i=0;i<4;i++){nextInSession(s);rateInSession(s,'easy');}
- const first=[];for(let i=0;i<4;i++){first.push(nextInSession(s));rateInSession(s,'easy');}
- assert.equal(new Set(first).size,4);
- const next=nextInSession(s);assert.notEqual(next,first.at(-1));
 });
 
 test('letter highlighting ignores accents and marks missing letters',()=>{assert.ok(compareLetters('arbol','árbol').input.every(x=>!x.error));assert.ok(compareLetters('csa','casa').answer.some(x=>x.error));});
@@ -75,14 +77,6 @@ test('overdue entries are included in due counters and today listing',()=>{
  assert.equal(v.dates.length,1);assert.equal(dueCounts(words,progress,now).due,1);
 });
 
-test('continuous training includes future-due words in extra practice instead of auto finishing',()=>{
- const words=[{id:'a'},{id:'b'}],now=Date.now();
- const progress={a:{due:now+86400000*3},b:{due:now+86400000*4}};
- const session=createSession(words,progress,now,true,()=>0.4);
- const first=nextInSession(session);assert.ok(words.some(x=>x.id===first));
- const out=rateInSession(session,'easy');assert.equal(out.save,false);
- assert.ok(nextInSession(session));
-});
 
 test('headerless spreadsheet includes first word and first two columns',()=>{
  const words=toWords([['a la derecha','справа'],['abrir/abro/abres','открывать'],['actor','актёр']]);

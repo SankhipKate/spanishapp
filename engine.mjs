@@ -47,6 +47,13 @@ export function parseSheetUrl(raw){
   return {id:match[1],gid};
 }
 const fresh=()=>({repetitions:0,interval:0,ease:2.3,due:0,lapses:0,updated:0,lastRating:null});
+export function recordAssessment(previous,rating,now=Date.now()){
+  if(!['again','hard','easy'].includes(rating))throw new Error('Unknown rating');
+  return {...fresh(),...previous,updated:now,lastRating:rating};
+}
+export function searchKey(value){
+  return String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleLowerCase();
+}
 export function recordRating(previous,rating,now=Date.now()){
   const p={...fresh(),...previous};
   if(!['again','hard','easy'].includes(rating))throw new Error('Unknown rating');
@@ -94,7 +101,7 @@ export function createSession(words,progress,now=Date.now(),practice=true,random
   for(const w of words){const p=progress[w.id];if(!p)newWords.push(w.id);else if(isDueOnCalendarDay(p.due,now))due.push(w.id);else later.push(w.id);}
   // Preserve due-before-new priority, but remove alphabetical/source-row hints.
   const queue=[...shuffle(due,random),...shuffle(newWords,random)];
-  return {queue,retry:[],done:new Set(),words:words.map(w=>w.id),later,practice,random,answered:0,again:0,current:null,sessionRatings:new Map()};
+  return {queue,retry:[],done:new Set(),words:words.map(w=>w.id),later,practice,random,answered:0,again:0,current:null,sessionRatings:new Map(Object.entries(progress||{}).filter(([,p])=>p?.lastRating).map(([id,p])=>[id,p.lastRating]))};
 }
 export function copySession(s){
   return {...s,queue:[...s.queue],retry:s.retry.map(x=>({...x})),
@@ -111,12 +118,11 @@ export function nextInSession(s){
   if(!s.practice)return null;
   // Optional extra practice: completed cards are shown again but do not affect intervals.
   if(!s.words.length)return null;
-  const pool=s.words.filter(id=>s.done.has(id));
-  // When due/new queue is empty, keep practising random words from the whole
-  // connected dictionary until user explicitly ends the session.
-  const available=s.words.filter(id=>!s.retry.some(x=>x.id===id));
+  // Extra practice is limited to words not yet confidently rated 'easy'.
+  const available=s.words.filter(id=>s.sessionRatings.get(id)!=='easy'&&!s.retry.some(x=>x.id===id));
   if(!available.length)return null;
-  if(!s.practiceDeck?.length){
+  s.practiceDeck=(s.practiceDeck||[]).filter(id=>available.includes(id));
+  if(!s.practiceDeck.length){
     s.practiceDeck=shuffle(available,s.random);
     if(s.practiceDeck.length>1&&s.practiceDeck[0]===s.lastPractice){
       [s.practiceDeck[0],s.practiceDeck[1]]=[s.practiceDeck[1],s.practiceDeck[0]];
@@ -136,7 +142,8 @@ export function rateInSession(s,rating){
     s.retry.push({id,after:s.answered+5});
   }else{s.done.add(id);s.retry=s.retry.filter(x=>x.id!==id);}
   s.sessionRatings.set(id,rating);
-  return {id,save:!extra||rating==='again'};
+  if(rating==='easy'&&s.practiceDeck)s.practiceDeck=s.practiceDeck.filter(x=>x!==id);
+  return {id,save:!extra||rating==='again',extra};
 }
 export function dueCounts(words,progress,now=Date.now()){
   let due=0,freshCount=0;
