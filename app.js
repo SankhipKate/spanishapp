@@ -1,10 +1,10 @@
-import {parseCSV,toWords,parseSheetUrl,recordRating,recordAssessment,searchKey,createSession,copySession,nextInSession,rateInSession,dueCounts,compareLetters,recoverLegacyProgress,localDayKey,isDueOnCalendarDay,scheduledReviews,todayTrainingStats,dailyRatingStats} from './engine.mjs?v=34';
+import {parseCSV,toWords,parseSheetUrl,recordRating,recordAssessment,searchKey,createSession,copySession,nextInSession,rateInSession,dueCounts,compareLetters,recoverLegacyProgress,localDayKey,isDueOnCalendarDay,scheduledReviews,todayTrainingStats,dailyRatingStats} from './engine.mjs?v=35';
 import {readApiResponse,readAllRows} from './cloud-api.mjs?v=32';
 import {mergeReviewMaps,mergeHistoryEvents as mergeHistoryEventsCore} from './sync-merge.mjs?v=32';
 import {mergeFlagMaps} from './word-flags.mjs?v=34';
 import {missingCloudEvents} from './sync-outbox.mjs?v=32';
 const $=id=>document.getElementById(id), cfg=window.APP_CONFIG||{};
-const APP_VERSION='0.34.0';
+const APP_VERSION='0.35.0';
 async function fetchPublishedVersion(){
  const response=await fetch(`./version.json?check=${Date.now()}`,{cache:'no-store'});
  if(!response.ok)throw new Error(`HTTP ${response.status}`);
@@ -33,7 +33,7 @@ $('check-app-update').addEventListener('click',checkAppUpdate);
 const KEY='palabras:v1';
 const DEMO=[['Русский','Испанский'],['дом','casa'],['сегодня','hoy'],['говорить','hablar'],['работать','trabajar'],['красивый','lindo, bonito'],['школа','escuela'],['вчера','ayer'],['утро','mañana'],['вода','agua'],['читать','leer']];
 let refreshTimer;
-const state={words:[],progress:{},sheet:'',range:'',reviewMode:'practice',session:null,displayedId:null,lastAnswer:null,correction:null,accessToken:null,user:null,supabaseSession:null,googleToken:null,source:'',saving:null,history:[],legacy:null,flags:{},studyMode:'normal',wordFilter:'all',openedAt:Date.now()};
+const state={words:[],progress:{},sheet:'',range:'',reviewMode:'practice',session:null,displayedId:null,lastAnswer:null,correction:null,accessToken:null,user:null,supabaseSession:null,googleToken:null,source:'',saving:null,history:[],legacy:null,flags:{},studyMode:'repeat',wordFilter:'all',openedAt:Date.now()};
 const hasBackend=!!(cfg.supabaseUrl&&cfg.supabaseAnonKey);
 let cloudLoading=false;
 let needsCloudRepair=false;
@@ -106,11 +106,11 @@ function renderWords(){const q=searchKey($('word-search').value.trim());const li
  updateFlagCounts();
 }
 function updateFlagCounts(){const repeat=Object.keys(state.flags).filter(id=>flagActive(id,'repeat')).length;const fix=Object.keys(state.flags).filter(id=>flagActive(id,'fix')).length;const mastered=state.words.filter(w=>flagActive(w.id,'mastered')).length;
- $('fix-count').textContent=fix;$('repeat-count').textContent=repeat;$('mastered-count').textContent=mastered;$('p-mastered').textContent=mastered;$('start-repeat').disabled=!repeat;
+ $('fix-count').textContent=fix;$('repeat-count').textContent=repeat;$('mastered-count').textContent=mastered;$('start-repeat').disabled=!repeat;
  $('repeat-training-count').textContent=repeat;
 }
 for(const button of document.querySelectorAll('[data-word-filter]'))button.addEventListener('click',()=>{state.wordFilter=button.dataset.wordFilter;for(const b of document.querySelectorAll('[data-word-filter]'))b.classList.toggle('active',b===button);renderWords();});
-async function toggleFlag(word,tag){const old=state.flags[word.id]?.[tag];const was=!!old?.enabled;state.flags[word.id]??={};state.flags[word.id].snapshot={id:word.id,ru:word.ru,es:word.es,sheetRow:word.sheetRow};state.flags[word.id][tag]={enabled:!was,at:Date.now()};saveLocal();if(tag==='mastered'){state.session=null;state.displayedId=null;renderStudy();renderHistory();}updateFlagCounts();renderWords();renderStudyFlags();if(state.user)try{await pushFlag(word.id,tag);}catch(err){console.warn('Failed to sync flag',err);$('study-notice').textContent='Отметка сохранена на этом устройстве; синхронизация не удалась.';$('study-notice').classList.remove('hidden');}}
+async function toggleFlag(word,tag){const old=state.flags[word.id]?.[tag];const was=!!old?.enabled;state.flags[word.id]??={};state.flags[word.id].snapshot={id:word.id,ru:word.ru,es:word.es,sheetRow:word.sheetRow};state.flags[word.id][tag]={enabled:!was,at:Date.now()};saveLocal();if(tag==='mastered'){renderHistory();}updateFlagCounts();renderWords();renderStudyFlags();if(state.user)try{await pushFlag(word.id,tag);}catch(err){console.warn('Failed to sync flag',err);$('study-notice').textContent='Отметка сохранена на этом устройстве; синхронизация не удалась.';$('study-notice').classList.remove('hidden');}}
 function renderStudyFlags(){
  const word=flagWord(state.session?.current);
  const fix=$('study-flags'),repeat=$('study-repeat');
@@ -133,11 +133,17 @@ function formatPrompt(value){
  }
  el.append(lead);
 }
-function setStudyMode(mode){state.studyMode=mode;state.session=null;state.displayedId=null;state.lastAnswer=null;state.correction=null;$('normal-training').classList.toggle('active',mode==='normal');$('repeat-training').classList.toggle('active',mode==='repeat');$('study-mode-desc').textContent=mode==='repeat'?'Отдельная тренировка из отмеченных слов.':'Напиши перевод и оцени свой ответ.';renderStudy();}
-$('normal-training').onclick=()=>setStudyMode('normal');$('repeat-training').onclick=()=>setStudyMode('repeat');$('start-repeat').onclick=()=>{setStudyMode('repeat');showPage('study');};$('back-normal').onclick=()=>setStudyMode('normal');
+function setStudyMode(mode){
+ state.studyMode=mode;state.session=null;state.displayedId=null;state.lastAnswer=null;state.correction=null;
+ for(const [id,value] of [['normal-training','normal'],['repeat-training','repeat'],['post-training','post']])$(id).classList.toggle('active',mode===value);
+ $('study-mode-desc').textContent=mode==='repeat'?'Слова из твоего списка ↻.':mode==='post'?'Слова с оценками «Сомневаюсь» и «Не знаю».':'Сначала плановые повторения, затем новые слова.';
+ renderStudy();
+}
+$('normal-training').onclick=()=>setStudyMode('normal');$('repeat-training').onclick=()=>setStudyMode('repeat');$('post-training').onclick=()=>setStudyMode('post');
+$('start-repeat').onclick=()=>{setStudyMode('repeat');showPage('study');};$('back-normal').onclick=()=>setStudyMode('normal');
 $('word-search').oninput=renderWords;
 function renderStats(){
- const c=dueCounts(state.words.filter(w=>!flagActive(w.id,'mastered')),state.progress);
+ const c=dueCounts(state.words,state.progress);
  $('total-words').textContent=state.words.length;
 
  $('new-words').textContent=c.new;
@@ -148,21 +154,41 @@ function renderStats(){
  $('study-hard').textContent=today.hard;
  $('study-again').textContent=today.again;
 }
-function renderStudy(){renderStats();const trainingWords=state.studyMode==='repeat'?state.words.filter(w=>flagActive(w.id,'repeat')&&!flagActive(w.id,'mastered')):state.words.filter(w=>!flagActive(w.id,'mastered'));const active=trainingWords.length>0;if(!active&&state.studyMode==='repeat'){$('study-empty').querySelector('h2').textContent='Список «Повторить» пуст';$('study-empty').querySelector('p').textContent='Добавь слова через ↻ в тренировке или словаре.';}else{$('study-empty').querySelector('h2').textContent=state.words.length?'Все слова отмечены ✓ Знаю':'Подключи словарь';$('study-empty').querySelector('p').textContent=state.words.length?'Можно снять отметку ✓ в словаре, чтобы вернуть слово в тренировку.':'Добавь ссылку на Google Таблицу в настройках или попробуй демонстрационный набор.';}$('study-empty').classList.toggle('hidden',active);$('study-card').classList.toggle('hidden',!active);if(!active){$('repeat-finished').classList.add('hidden');return;}
-  if(!state.session)state.session=state.studyMode==='repeat'?createSession(trainingWords,{},Date.now(),false):createSession(trainingWords,state.progress,Date.now(),state.reviewMode==='practice');
-  if(!Array.isArray(state.session.queue))state.session=state.studyMode==='repeat'?createSession(trainingWords,{},Date.now(),false):createSession(trainingWords,state.progress,Date.now(),state.reviewMode==='practice');
-  const id=nextInSession(state.session);
-  if(!id){if(state.studyMode==='repeat'){ $('repeat-finished').querySelector('h2').textContent='Повторение завершено';$('study-card').classList.add('hidden');$('repeat-finished').classList.remove('hidden');renderStudyFlags();return;}$('study-card').classList.add('hidden');$('repeat-finished').classList.remove('hidden');$('repeat-finished').querySelector('h2').textContent='На сегодня всё';return;}
-  $('repeat-finished').classList.add('hidden');const currentId=state.session.current;
-  let word=state.words.find(w=>w.id===currentId);
-  if(!word){state.session=createSession(trainingWords,state.progress,Date.now(),state.reviewMode==='practice');word=state.words.find(w=>w.id===nextInSession(state.session));if(!word){$('study-notice').textContent='Не удалось выбрать слово из словаря.';$('study-notice').classList.remove('hidden');return;}}
-   renderStudyFlags();
-   // A background sync can redraw the page; keep the currently displayed card and typed answer.
-   if(state.displayedId===currentId)return;
-   state.displayedId=currentId;
-   formatPrompt(word.ru);$('answer-word').textContent=word.es;
-
-   $('typed-answer').readOnly=false;$('typed-answer').value='';$('answer-compare').replaceChildren();$('answer-compare').classList.add('hidden');$('revealed-area').classList.add('hidden');$('reveal').classList.remove('hidden');focusAnswer();
+function renderStudy(){
+ renderStats();
+ const pool=state.words.filter(w=>!flagActive(w.id,'mastered'));
+ const postWords=pool.filter(w=>['hard','again'].includes(state.progress[w.id]?.lastRating));
+ const trainingWords=state.studyMode==='repeat'?pool.filter(w=>flagActive(w.id,'repeat')):state.studyMode==='post'?postWords:pool;
+ const active=trainingWords.length>0;
+ if(!active){
+   const title=state.studyMode==='repeat'?'Список «Особенные слова» пуст':state.studyMode==='post'?'Нет слов для Постпрактики':state.words.length?'На сегодня всё':'Подключи словарь';
+   $('study-empty').querySelector('h2').textContent=title;
+   $('study-empty').querySelector('p').textContent=state.studyMode==='repeat'?'Добавь слова через ↻ на карточке или в словаре.':state.studyMode==='post'?'Для Постпрактики нужны слова с оценками «Сомневаюсь» или «Не знаю».':'Словарь можно обновить в настройках.';
+ }
+ $('study-empty').classList.toggle('hidden',active);
+ $('study-card').classList.toggle('hidden',!active);
+ if(!active){$('repeat-finished').classList.add('hidden');return;}
+ if(!state.session||!Array.isArray(state.session.queue)){
+   state.session=createSession(trainingWords,state.studyMode==='repeat'?{}:state.progress,Date.now(),false,Math.random,{mode:state.studyMode,poolWords:pool});
+   if(state.studyMode==='repeat'){
+     state.session.hardPool=pool.filter(w=>state.progress[w.id]?.lastRating==='hard').map(w=>w.id);
+   }
+ }
+ const id=nextInSession(state.session);
+ if(!id){
+   if(state.studyMode==='normal'&&!state.session.blocked&&state.reviewMode==='practice'&&postWords.length){setStudyMode('post');return;}
+   $('study-card').classList.add('hidden');$('repeat-finished').classList.remove('hidden');
+   $('repeat-finished').querySelector('h2').textContent=state.session.blocked?'Недостаточно разных слов для повторения':state.studyMode==='repeat'?'Особенные слова завершены':'На сегодня всё';
+   return;
+ }
+ $('repeat-finished').classList.add('hidden');
+ const word=state.words.find(w=>w.id===id);
+ if(!word){state.session=null;state.displayedId=null;renderStudy();return;}
+ renderStudyFlags();
+ if(state.displayedId===id)return;
+ state.displayedId=id;
+ formatPrompt(word.ru);$('answer-word').textContent=word.es;
+ $('typed-answer').readOnly=false;$('typed-answer').value='';$('answer-compare').replaceChildren();$('answer-compare').classList.add('hidden');$('revealed-area').classList.add('hidden');$('reveal').classList.remove('hidden');focusAnswer();
 }
 function beginNew(){state.session=null;state.displayedId=null;state.lastAnswer=null;state.correction=null;renderStudy();}
 function renderLetterDiff(typed,expected){
@@ -213,7 +239,7 @@ async function rate(rating){
  const word=state.words.find(w=>w.id===id);
  const at=Math.max(Date.now(),(correction?.at||0)+1,(state.progress[id]?.updated||0)+1);
  const result=rateInSession(s,rating),special=state.studyMode==='repeat';
- const save=!special;
+ const save=!special&&(!result.filler||rating==='again')&&(!flagActive(id,'mastered')||rating==='again');
  if(save)state.progress[id]=result.extra&&rating!=='again'?recordAssessment(beforeProgress,rating,at):recordRating(beforeProgress,rating,at);
  const event={at,id,rating,extra:special||result.extra};
  state.history.push(event);
@@ -253,16 +279,16 @@ function renderHistory(){
  }
  for(const oldDay of state.legacy?.days||[])getDay(oldDay);
 
- const counts=dueCounts(state.words.filter(w=>!flagActive(w.id,'mastered')),state.progress);
+ const counts=dueCounts(state.words,state.progress);
  const learned=counts.total-counts.new;
  $('p-learned').textContent=learned;
  $('p-hard').textContent=ratings.hard;
  $('p-easy').textContent=ratings.easy;
  $('p-again').textContent=ratings.again;
- const total=state.words.length;const percent=total?Math.round((learned+state.words.filter(w=>flagActive(w.id,'mastered')).length)/total*100):0;
+ const total=state.words.length;const percent=total?Math.round(learned/total*100):0;
  $('learned-progress-fill').style.width=`${Math.min(percent,100)}%`;
  $('learned-progress-bar').setAttribute('aria-valuenow',Math.min(percent,100));
- $('learned-progress-caption').textContent=`Изучено ${learned} + отмечено ✓ ${state.words.filter(w=>flagActive(w.id,'mastered')).length} из ${total} слов · ${percent}%`;
+ $('learned-progress-caption').textContent=`Изучено ${learned} из ${total} слов · ${percent}%`;
  $('p-days').textContent=`${buckets.size} ${plural(buckets.size,'день','дня','дней')} занятий`;
  const root=$('history-list');root.replaceChildren();
  const sorted=[...buckets].sort((a,b)=>b[0].localeCompare(a[0]));
@@ -466,6 +492,6 @@ async function syncAll(){
 }
 async function init(){loadLocal();renderSettings();if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js').catch(console.warn);
 
-  if(hasBackend)await restoreAuth();updateFlagCounts();if(state.sheet&&state.source!=='sheet')await refreshSheet();renderStudy();
+  if(hasBackend)await restoreAuth();updateFlagCounts();if(state.sheet&&state.source!=='sheet')await refreshSheet();setStudyMode('repeat');
 }
 init();

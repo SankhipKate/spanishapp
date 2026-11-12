@@ -102,3 +102,8 @@
 .previous-word{border:1px solid #cbdcd2;border-radius:9px;background:#fff;color:#577768;font-size:23px;line-height:1;min-width:40px;min-height:40px;cursor:pointer}
 .previous-word:disabled{opacity:.35;cursor:default}
 @media(max-width:620px){.quiz-prompt-row .quiz-word{padding:12px 2px 14px}.previous-word{min-width:36px;min-height:36px}}
+
+/* v0.35: five tabs always fit in the viewport. */
+.tabs{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px;overflow:visible}
+.tabs button{white-space:normal;overflow-wrap:anywhere;min-width:0;text-align:center;padding:14px 2px;font-size:clamp(10px,1.8vw,14px);line-height:1.25}
+@media(max-width:560px){.tabs{gap:2px}.tabs button{font-size:clamp(9px,2.6vw,12px);padding:11px 1px}}
