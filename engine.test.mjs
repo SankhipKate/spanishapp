@@ -12,15 +12,27 @@ test('missed word returns after five other answers, including a second miss',()=
  assert.equal(nextInSession(q),'A');rateInSession(q,'hard');assert.equal(nextInSession(q),'L');
 });
 test('hard and easy have distinct intervals; again is due now',()=>{const now=100000;const hard=recordRating(null,'hard',now),easy=recordRating(null,'easy',now),again=recordRating(null,'again',now);assert.ok(hard.due<easy.due);assert.equal(again.due,now);assert.equal(dueCounts([{id:'a',ru:'a',es:'a'}],{a:again},now).due,1);});
-test('extra practice ends after a successful answer without updating the schedule',()=>{
- const s=createSession([{id:'a'}],{},1000,true);
- assert.equal(nextInSession(s),'a');
- rateInSession(s,'hard');
- assert.equal(nextInSession(s),'a');
- const result=rateInSession(s,'easy');
- assert.equal(result.save,false);
- assert.equal(result.extra,true);
- assert.equal(nextInSession(s),null);
+test('postpractice selects only hard and again, and hard/easy do not change schedule',()=>{
+ const words=['A','B'].map(id=>({id}));
+ const s=createSession(words,{},1000,false,()=>0.999,{mode:'post',poolWords:words});
+ assert.equal(nextInSession(s),'A');const r=rateInSession(s,'easy');assert.equal(r.extra,true);
+ assert.equal(nextInSession(s),'B');rateInSession(s,'easy');assert.equal(nextInSession(s),null);
+});
+test('short special list borrows five different fillers from dictionary',()=>{
+ const words=['A','B','C','D','E','F','G'].map(id=>({id}));
+ const s=createSession(words.slice(0,2),{},1000,false,()=>0.999,{mode:'repeat',poolWords:words});
+ assert.equal(nextInSession(s),'A');rateInSession(s,'again');
+ const fillers=[];
+ for(let i=0;i<5;i++){const id=nextInSession(s);fillers.push(id);rateInSession(s,'hard');}
+ assert.equal(new Set(fillers).size,5);assert.ok(!fillers.includes('A'));
+ assert.equal(nextInSession(s),'A');
+});
+test('single postpractice missed card is not displayed immediately',()=>{
+ const words=['A','B','C','D','E','F'].map(id=>({id}));
+ const s=createSession(words.slice(0,1),{},1000,false,()=>0.999,{mode:'post',poolWords:words});
+ assert.equal(nextInSession(s),'A');rateInSession(s,'again');
+ const seen=[];for(let i=0;i<5;i++){const id=nextInSession(s);seen.push(id);rateInSession(s,'easy');}
+ assert.equal(new Set(seen).size,5);assert.equal(nextInSession(s),'A');
 });
 
 test('existing Google columns map Spanish A to Russian B and first verb form only',()=>{

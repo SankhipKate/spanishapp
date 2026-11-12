@@ -96,54 +96,76 @@ export function scheduledReviews(words,progress,now=Date.now()){
   }
   return {today:todayWords.length,overdue:overdue.length,dates:[...future].sort((a,b)=>a[0].localeCompare(b[0]))};
 }
-export function createSession(words,progress,now=Date.now(),practice=true,random=Math.random){
+// A missed card needs five DISTINCT intervening words. All three modes
+// may borrow words from the full non-excluded dictionary when necessary.
+export function createSession(words,progress,now=Date.now(),practice=true,random=Math.random,options={}){
   const due=[],newWords=[],later=[];
   for(const w of words){const p=progress[w.id];if(!p)newWords.push(w.id);else if(isDueOnCalendarDay(p.due,now))due.push(w.id);else later.push(w.id);}
-  // Preserve due-before-new priority, but remove alphabetical/source-row hints.
-  const queue=[...shuffle(due,random),...shuffle(newWords,random)];
-  return {queue,retry:[],done:new Set(),words:words.map(w=>w.id),later,practice,random,answered:0,again:0,current:null,sessionRatings:new Map(Object.entries(progress||{}).filter(([,p])=>p?.lastRating).map(([id,p])=>[id,p.lastRating]))};
+  const mode=options.mode||'normal';
+  const queue=mode==='normal'?[...shuffle(due,random),...shuffle(newWords,random)]:shuffle(words.map(w=>w.id),random);
+  const pool=(options.poolWords||words).map(w=>w.id);
+  const hardPool=(options.poolWords||words).filter(w=>progress[w.id]?.lastRating==='hard').map(w=>w.id);
+  return {queue,retry:[],done:new Set(),words:words.map(w=>w.id),pool,hardPool,later,mode,practice,random,answered:0,again:0,current:null,extra:false,filler:false,shown:new Set(),sessionRatings:new Map(Object.entries(progress||{}).filter(([,p])=>p?.lastRating).map(([id,p])=>[id,p.lastRating]))};
 }
 export function copySession(s){
-  return {...s,queue:[...s.queue],retry:s.retry.map(x=>({...x})),
-    done:new Set(s.done),sessionRatings:new Map(s.sessionRatings),
-    ...(s.practiceDeck?{practiceDeck:[...s.practiceDeck]}:{})};
+  return {...s,queue:[...s.queue],retry:s.retry.map(x=>({...x,seen:[...x.seen]})),
+    done:new Set(s.done),shown:new Set(s.shown),sessionRatings:new Map(s.sessionRatings)};
 }
 export function nextInSession(s){
   if(s.current)return s.current;
-  // Retry cards after at least five other answers have been shown, or as soon as the normal queue empties.
-  let ready=s.retry.findIndex(x=>x.after<=s.answered);
-  if(ready>=0){s.current=s.retry.splice(ready,1)[0].id;return s.current;}
-  if(s.queue.length){s.current=s.queue.shift();return s.current;}
-  if(s.retry.length){s.current=s.retry.shift().id;return s.current;}
-  if(!s.practice)return null;
-  // Optional extra practice: completed cards are shown again but do not affect intervals.
-  if(!s.words.length)return null;
-  // Extra practice is limited to words not yet confidently rated 'easy'.
-  const available=s.words.filter(id=>s.sessionRatings.get(id)!=='easy'&&!s.retry.some(x=>x.id===id));
-  if(!available.length)return null;
-  s.practiceDeck=(s.practiceDeck||[]).filter(id=>available.includes(id));
-  if(!s.practiceDeck.length){
-    s.practiceDeck=shuffle(available,s.random);
-    if(s.practiceDeck.length>1&&s.practiceDeck[0]===s.lastPractice){
-      [s.practiceDeck[0],s.practiceDeck[1]]=[s.practiceDeck[1],s.practiceDeck[0]];
-    }
+  s.extra=false;s.filler=false;
+  const pending=s.retry[0];
+  if(pending&&pending.seen.length>=5){
+    s.current=s.retry.shift().id;
+    s.extra=s.mode==='post';
+    return s.current;
   }
-  s.current=s.practiceDeck.shift();s.extra=true;s.lastPractice=s.current;
-  return s.current;
+  // Never show the missed word, or a duplicate, among its five intervening cards.
+  const allowed=id=>!pending||(id!==pending.id&&!pending.seen.includes(id));
+  const queued=s.queue.findIndex(allowed);
+  if(queued>=0){
+    s.current=s.queue.splice(queued,1)[0];
+    s.extra=s.mode==='post';
+    return s.current;
+  }
+  if(pending){
+    const pools=s.mode==='repeat'?[s.words,s.hardPool,s.pool]:s.mode==='post'?[s.hardPool,s.pool]:[s.hardPool,s.pool];
+    for(const group of pools){
+      const candidates=group.filter(id=>allowed(id)&&!s.retry.some(r=>r.id===id));
+      if(candidates.length){
+        const unseen=candidates.filter(id=>!s.shown.has(id));
+        s.current=shuffle(unseen.length?unseen:candidates,s.random)[0];
+        s.extra=true;s.filler=true;
+        return s.current;
+      }
+    }
+    // A dictionary of fewer than six eligible distinct words cannot fill the gap.
+    s.blocked=true;return null;
+  }
+  if(s.mode!=='post')return null;
+  const available=s.words.filter(id=>['hard','again'].includes(s.sessionRatings.get(id)));
+  if(!available.length)return null;
+  const unseen=available.filter(id=>!s.shown.has(id));
+  s.current=shuffle(unseen.length?unseen:available,s.random)[0];
+  // Postpractice is assessment-only for hard/easy: retain existing due date.
+  s.extra=true;return s.current;
 }
 export function rateInSession(s,rating){
   if(!s.current)throw new Error('No current word');
-  const id=s.current,extra=!!s.extra;
-  s.current=null;s.extra=false;s.answered++;
+  if(!['again','hard','easy'].includes(rating))throw new Error('Unknown rating');
+  const id=s.current,extra=!!s.extra,filler=!!s.filler;
+  s.current=null;s.extra=false;s.filler=false;s.answered++;s.shown.add(id);
+  for(const item of s.retry){
+    if(id!==item.id&&!item.seen.includes(id))item.seen.push(id);
+  }
   if(rating==='again'){
-    s.again++;
-    s.done.delete(id);
+    s.again++;s.done.delete(id);
     s.retry=s.retry.filter(x=>x.id!==id);
-    s.retry.push({id,after:s.answered+5});
+    s.retry.push({id,seen:[]});
   }else{s.done.add(id);s.retry=s.retry.filter(x=>x.id!==id);}
-  s.sessionRatings.set(id,rating);
-  if(rating==='easy'&&s.practiceDeck)s.practiceDeck=s.practiceDeck.filter(x=>x!==id);
-  return {id,save:!extra||rating==='again',extra};
+  // Only saved assessments affect the postpractice selection.
+  if(!filler||rating==='again')s.sessionRatings.set(id,rating);
+  return {id,save:!extra||rating==='again',extra,filler};
 }
 export function dueCounts(words,progress,now=Date.now()){
   let due=0,freshCount=0;

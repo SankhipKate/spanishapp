@@ -7,11 +7,20 @@ test('accent insensitive and substring search',()=>{
   assert.ok(searchKey(word).includes(searchKey(query)));
  assert.equal(searchKey('año'),searchKey('ano'));
 });
-test('extra practice only presents words not rated easy and ends once all are easy',()=>{
- const w=[{id:'a'},{id:'b'}],s=createSession(w,{},Date.now(),true,()=>0.7);
- while(s.queue.length){nextInSession(s);rateInSession(s,'hard');}
- for(let i=0;i<2;i++){assert.ok(nextInSession(s));rateInSession(s,'easy');}
- assert.equal(nextInSession(s),null);
+test('postpractice only presents hard/again words and ends once all are easy',()=>{
+ const words=[{id:'a'},{id:'b'}];
+ const progress={a:{lastRating:'hard',due:0},b:{lastRating:'again',due:0}};
+ const session=createSession(words,progress,Date.now(),false,()=>0.7,{mode:'post',poolWords:words});
+ const presented=[];
+ for(let i=0;i<2;i++){
+  const id=nextInSession(session);
+  assert.ok(id);
+  presented.push(id);
+  const result=rateInSession(session,'easy');
+  assert.equal(result.extra,true);
+ }
+ assert.equal(new Set(presented).size,2);
+ assert.equal(nextInSession(session),null);
 });
 test('additional practice retains scheduling fields but saves assessment timestamp',()=>{
  const previous={due:100,interval:7,ease:2.5,repetitions:4,lapses:1,updated:50,lastRating:'hard'};

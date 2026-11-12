@@ -6,10 +6,11 @@ import {
 } from './engine.mjs';
 import {mergeFlagMaps} from './word-flags.mjs';
 
-test('rewind in extra practice restores the previous rating and queue',()=>{
+test('rewind in postpractice restores the previous rating and queue',()=>{
  const baseline=recordRating(null,'hard',1000);
  const progress={a:baseline};
- const s=createSession([{id:'a'}],progress,2000,true,()=>0.5);
+ const words=[{id:'a'}];
+ const s=createSession(words,progress,2000,false,()=>0.5,{mode:'post',poolWords:words});
  assert.equal(nextInSession(s),'a');
  const before=copySession(s);
  const first=rateInSession(s,'easy');
