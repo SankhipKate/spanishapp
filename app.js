@@ -1,10 +1,10 @@
-import {parseCSV,toWords,parseSheetUrl,recordRating,recordAssessment,searchKey,createSession,copySession,nextInSession,rateInSession,dueCounts,compareLetters,recoverLegacyProgress,localDayKey,isDueOnCalendarDay,scheduledReviews,todayTrainingStats,dailyRatingStats} from './engine.mjs?v=362';
+import {parseCSV,toWords,parseSheetUrl,recordRating,recordAssessment,searchKey,createSession,copySession,nextInSession,rateInSession,dueCounts,compareLetters,recoverLegacyProgress,localDayKey,isDueOnCalendarDay,scheduledReviews,todayTrainingStats,dailyRatingStats} from './engine.mjs?v=363';
 import {readApiResponse,readAllRows} from './cloud-api.mjs?v=32';
 import {mergeReviewMaps,mergeHistoryEvents as mergeHistoryEventsCore} from './sync-merge.mjs?v=32';
 import {mergeFlagMaps} from './word-flags.mjs?v=34';
 import {missingCloudEvents} from './sync-outbox.mjs?v=32';
 const $=id=>document.getElementById(id), cfg=window.APP_CONFIG||{};
-const APP_VERSION='0.36.2';
+const APP_VERSION='0.36.3';
 async function fetchPublishedVersion(){
  const response=await fetch(`./version.json?check=${Date.now()}`,{cache:'no-store'});
  if(!response.ok)throw new Error(`HTTP ${response.status}`);
@@ -94,9 +94,42 @@ function renderSettings(){$('sheet-url').value=state.sheet;$('sheet-range').valu
 function flagActive(id,flag){return !!state.flags[id]?.[flag]?.enabled;}
 function flagWord(id){return state.words.find(w=>w.id===id)||state.flags[id]?.snapshot||null;}
 function flagButton(word,flag,label){const button=document.createElement('button');button.type='button';button.className='flag-button'+(flagActive(word.id,flag)?' selected':'');button.textContent=flag==='fix'?'✎':flag==='repeat'?'↻':'✓';button.setAttribute('aria-label',`${flagActive(word.id,flag)?'Убрать из':'Добавить в'} ${label}: ${word.ru}`);button.title=label;button.setAttribute('aria-pressed',String(flagActive(word.id,flag)));button.onclick=()=>toggleFlag(word,flag);return button;}
-function sheetEditLink(word){if(!state.sheet)return null;const link=document.createElement('a');try{const parsed=parseSheetUrl(state.sheet);link.href=`https://docs.google.com/spreadsheets/d/${parsed.id}/edit#gid=${parsed.gid}${word.sheetRow?'&range=A'+word.sheetRow+':B'+word.sheetRow:''}`;}catch{link.href=state.sheet;}link.target='_blank';link.rel='noopener noreferrer';link.textContent='Открыть таблицу ↗';link.className='sheet-edit-link';link.title='Найти и исправить слово в Google Таблице';return link;}
+async function openWordInSheet(word, sheetUrl){
+  const tab=window.open('about:blank','_blank');
+  if(!tab){window.alert('Разрешите открытие новой вкладки для Google Таблицы.');return;}
+  tab.opener=null;
+  try{
+    const sheet=parseSheetUrl(sheetUrl);
+    const {words,gid}=await readSheetWords(sheet,{locateCell:true});
+    const current=words.find(candidate=>candidate.id===word.id);
+    if(!current)throw new Error('Слово не найдено в таблице. Возможно, его изменили или удалили.');
+    tab.location.replace(`https://docs.google.com/spreadsheets/d/${sheet.id}/edit#gid=${gid}&range=${current.sheetCell}`);
+  }catch(error){
+    tab.close();
+    window.alert(error.message);
+  }
+}
+function sheetEditLink(word){
+  if(!state.sheet)return null;
+  const sheetUrl=state.sheet;
+  const link=document.createElement('a');
+  link.href=sheetUrl;
+  link.target='_blank';
+  link.rel='noopener noreferrer';
+  link.textContent='Открыть таблицу ↗';
+  link.className='sheet-edit-link';
+  link.title='Найти и исправить слово в Google Таблице';
+  link.addEventListener('click',event=>{
+    event.preventDefault();
+    void openWordInSheet(word,sheetUrl);
+  });
+  return link;
+}
+const spanishOrder=new Intl.Collator('es',{sensitivity:'base'});
 function renderWords(){const q=searchKey($('word-search').value.trim());const list=state.wordFilter==='all'?state.words:Object.entries(state.flags).filter(([,v])=>v[state.wordFilter]?.enabled).map(([id])=>flagWord(id)).filter(Boolean);
- const filtered=list.filter(w=>!q||searchKey(`${w.ru} ${w.es}`).includes(q));$('words-empty').classList.toggle('hidden',!!filtered.length);const body=$('words-table');body.replaceChildren();
+ const filtered=list.filter(w=>!q||searchKey(`${w.ru} ${w.es}`).includes(q));
+ if(state.wordFilter==='fix')filtered.sort((a,b)=>spanishOrder.compare(a.es,b.es));
+ $('words-empty').classList.toggle('hidden',!!filtered.length);const body=$('words-table');body.replaceChildren();
  for(const w of filtered.slice(0,1000)){
   const tr=document.createElement('tr');for(const val of [w.ru,w.es]){const td=document.createElement('td');td.textContent=val;tr.append(td);}
   const actions=document.createElement('td');actions.className='word-actions';actions.append(flagButton(w,'fix','Fix me'),flagButton(w,'repeat','Повторить'),flagButton(w,'mastered','Знаю окончательно'));
@@ -327,11 +360,11 @@ function renderHistory(){
 function plural(n,one,few,many){const m=Math.abs(n)%100,k=m%10;return m>=11&&m<=14?many:k===1?one:k>=2&&k<=4?few:many;}
 $('review-mode').onchange=()=>{state.reviewMode=$('review-mode').value;saveLocal();saveProfile();beginNew();};
 $('load-demo').onclick=()=>{state.words=toWords(DEMO);state.source='demo';state.sheet='';state.progress={};state.history=[];state.legacy=recoverLegacyProgress({});saveLocal();beginNew();};
-async function readPublicSheet(sheet){const urls=[`https://docs.google.com/spreadsheets/d/${sheet.id}/export?format=csv&gid=${sheet.gid}`,`https://docs.google.com/spreadsheets/d/${sheet.id}/gviz/tq?tqx=out%3Acsv&gid=${sheet.gid}`];let last;
-  for(const url of urls){try{const r=await fetch(url);if(!r.ok)throw new Error(`HTTP ${r.status}`);const data=await r.text();if(/^\s*<!doctype html|^\s*<html/i.test(data))throw new Error('Google вернул страницу вместо CSV');return toWords(parseCSV(data));}catch(e){last=e;}}
+async function readPublicSheet(sheet,locateCell){const urls=[`https://docs.google.com/spreadsheets/d/${sheet.id}/export?format=csv&gid=${sheet.gid}`,`https://docs.google.com/spreadsheets/d/${sheet.id}/gviz/tq?tqx=out%3Acsv&gid=${sheet.gid}`];let last;
+  for(const url of urls){try{const r=await fetch(url,locateCell?{cache:'no-store'}:undefined);if(!r.ok)throw new Error(`HTTP ${r.status}`);const data=await r.text();if(/^\s*<!doctype html|^\s*<html/i.test(data))throw new Error('Google вернул страницу вместо CSV');return toWords(parseCSV(data,{keepEmptyRows:locateCell}),{includeSheetCell:locateCell});}catch(e){last=e;}}
   throw new Error(`Не удалось прочитать таблицу без авторизации: ${last?.message||'ошибка сети'}. Попробуй предоставить доступ по ссылке или подключить Google OAuth.`);
 }
-async function readPrivateSheet(sheet){if(!state.googleToken)throw new Error('Сначала разреши доступ Google.');
+async function readPrivateSheet(sheet,locateCell){if(!state.googleToken)throw new Error('Сначала разреши доступ Google.');
   const base=`https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheet.id)}`;
   const headers={Authorization:`Bearer ${state.googleToken}`};
   const meta=await fetch(`${base}?fields=sheets.properties`,{headers});if(!meta.ok)throw new Error(`Google Sheets API: ${meta.status}`);
@@ -340,11 +373,19 @@ async function readPrivateSheet(sheet){if(!state.googleToken)throw new Error('С
   if(!page)throw new Error('В таблице нет листов.');
   const range=`'${page.title.replace(/'/g,"''")}'!A:ZZ`;
   const r=await fetch(`${base}/values/${encodeURIComponent(range)}`,{headers});if(!r.ok)throw new Error(`Нет доступа к данным листа: HTTP ${r.status}`);
-  return toWords((await r.json()).values||[]);
+  const words=toWords((await r.json()).values||[],{includeSheetCell:locateCell});
+  return {words,gid:String(page.sheetId)};
+}
+async function readSheetWords(sheet,{locateCell=false}={}){
+  try{
+    return {words:await readPublicSheet(sheet,locateCell),gid:sheet.gid};
+  }catch(error){
+    if(state.googleToken)return readPrivateSheet(sheet,locateCell);
+    throw error;
+  }
 }
 async function refreshSheet(){if(!state.sheet){note('sheet-message','Сначала добавь ссылку на таблицу.');return;}
-  note('sheet-message','Читаю Google Таблицу…');try{const parsed=parseSheetUrl(state.sheet);let words;
-    try{words=await readPublicSheet(parsed);}catch(e){if(state.googleToken)words=await readPrivateSheet(parsed);else throw e;}
+  note('sheet-message','Читаю Google Таблицу…');try{const {words}=await readSheetWords(parseSheetUrl(state.sheet));
     if(!words.length)throw new Error('В таблице не найдены слова с заполненными русским и испанским переводами.');
     state.words=words;state.source='sheet';state.session=null;saveLocal();await saveProfile();
     note('sheet-message',`Загружено ${words.length} слов. Прогресс сохранён.`);renderStudy();

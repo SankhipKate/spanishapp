@@ -1,22 +1,25 @@
 // Pure vocabulary + scheduling engine. Timestamps are in milliseconds.
 const DAY = 86400000;
-export function parseCSV(text) {
+export function parseCSV(text, {keepEmptyRows=false}={}) {
   const rows=[];let row=[],cell='',quoted=false;
   text=String(text).replace(/^\uFEFF/,'');
   for(let i=0;i<text.length;i++){
     const c=text[i];
     if(c==='"') {if(quoted&&text[i+1]==='"'){cell+='"';i++;} else quoted=!quoted;}
     else if(c===','&&!quoted){row.push(cell.trim());cell='';}
-    else if((c==='\n'||c==='\r')&&!quoted){if(c==='\r'&&text[i+1]==='\n')i++;row.push(cell.trim());if(row.some(Boolean))rows.push(row);row=[];cell='';}
+    else if((c==='\n'||c==='\r')&&!quoted){if(c==='\r'&&text[i+1]==='\n')i++;row.push(cell.trim());if(keepEmptyRows||row.some(Boolean))rows.push(row);row=[];cell='';}
     else cell+=c;
   }
   row.push(cell.trim());if(row.some(Boolean))rows.push(row);
   return rows;
 }
 export function normalizeHeader(s){return String(s||'').trim().toLowerCase().replace(/[\s_\-]+/g,'');}
-export function toWords(rows){
-  if(!rows.length)return [];
-  const header=rows[0].map(normalizeHeader);
+export function toWords(rows, {includeSheetCell=false}={}){
+  const firstRow=includeSheetCell
+    ? rows.findIndex(row=>row.some(cell=>String(cell??'').trim()))
+    : 0;
+  if(firstRow<0||!rows.length)return [];
+  const header=rows[firstRow].map(normalizeHeader);
   const find=(names)=>header.findIndex(x=>names.includes(x));
   let r=find(['русский','рус','russian','ru','вопрос','question','перевод']);
   let e=find(['испанский','исп','spanish','es','ответ','answer','дубликаты']);
@@ -27,12 +30,20 @@ export function toWords(rows){
   const unknownHeading=!hasHeader&&['palabra','word','vocabulary','meaning','translation','значение'].some(x=>header.includes(x));
   const id=find(['id','ид','идентификатор']);
   if(r<0||e<0||r===e)throw new Error('Нужны два столбца: испанское слово и русский перевод.');
+  let column='';
+  if(includeSheetCell){
+    for(let n=e+1;n>0;n=Math.floor((n-1)/26)){
+      column=String.fromCharCode(65+(n-1)%26)+column;
+    }
+  }
   const words=[],seen=new Set();
-  for(let i=(hasHeader||unknownHeading?1:0);i<rows.length;i++){
+  for(let i=firstRow+(hasHeader||unknownHeading?1:0);i<rows.length;i++){
     const ru=String(rows[i][r]||'').trim(),es=String(rows[i][e]||'').split('/')[0].trim();if(!ru||!es)continue;
     const key=(id>=0&&rows[i][id])?`id:${rows[i][id].trim()}`:`text:${ru.toLocaleLowerCase('ru')}|${es.toLocaleLowerCase('es')}`;
     if(seen.has(key))continue;seen.add(key);
-    words.push({id:key,ru,es,sheetRow:i+1});
+    const word={id:key,ru,es,sheetRow:i+1};
+    if(includeSheetCell)word.sheetCell=column+word.sheetRow;
+    words.push(word);
   }
   return words;
 }
