@@ -48,8 +48,8 @@ test('new and due words are randomized independently of their source order',()=>
  const words=['A','B','C','D','E','F'].map(id=>({id,ru:id,es:id}));
  const progress={A:{due:0},B:{due:0}};
  const s=createSession(words,progress,1000,false,()=>0);
- assert.deepEqual([s.queue[0],s.queue[2]],['B','A']);
- assert.notDeepEqual([s.queue[1],s.queue[3],s.queue[4],s.queue[5]],['C','D','E','F']);
+ assert.deepEqual(s.queue.slice(0,2),['B','A']);
+ assert.notDeepEqual(s.queue.slice(2),['C','D','E','F']);
  assert.equal(new Set(s.queue).size,words.length);
 });
 
