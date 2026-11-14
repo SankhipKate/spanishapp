@@ -1,10 +1,10 @@
-import {parseCSV,toWords,parseSheetUrl,recordRating,recordAssessment,searchKey,createSession,copySession,nextInSession,rateInSession,dueCounts,compareLetters,recoverLegacyProgress,localDayKey,isDueOnCalendarDay,scheduledReviews,todayTrainingStats,dailyRatingStats} from './engine.mjs?v=35';
+import {parseCSV,toWords,parseSheetUrl,recordRating,recordAssessment,searchKey,createSession,copySession,nextInSession,rateInSession,dueCounts,compareLetters,recoverLegacyProgress,localDayKey,isDueOnCalendarDay,scheduledReviews,todayTrainingStats,dailyRatingStats} from './engine.mjs?v=36';
 import {readApiResponse,readAllRows} from './cloud-api.mjs?v=32';
 import {mergeReviewMaps,mergeHistoryEvents as mergeHistoryEventsCore} from './sync-merge.mjs?v=32';
 import {mergeFlagMaps} from './word-flags.mjs?v=34';
 import {missingCloudEvents} from './sync-outbox.mjs?v=32';
 const $=id=>document.getElementById(id), cfg=window.APP_CONFIG||{};
-const APP_VERSION='0.35.0';
+const APP_VERSION='0.36.0';
 async function fetchPublishedVersion(){
  const response=await fetch(`./version.json?check=${Date.now()}`,{cache:'no-store'});
  if(!response.ok)throw new Error(`HTTP ${response.status}`);
@@ -106,7 +106,7 @@ function renderWords(){const q=searchKey($('word-search').value.trim());const li
  updateFlagCounts();
 }
 function updateFlagCounts(){const repeat=Object.keys(state.flags).filter(id=>flagActive(id,'repeat')).length;const fix=Object.keys(state.flags).filter(id=>flagActive(id,'fix')).length;const mastered=state.words.filter(w=>flagActive(w.id,'mastered')).length;
- $('fix-count').textContent=fix;$('repeat-count').textContent=repeat;$('mastered-count').textContent=mastered;$('start-repeat').disabled=!repeat;
+ $('fix-count').textContent=fix;$('repeat-count').textContent=repeat;$('mastered-count').textContent=mastered;
  $('repeat-training-count').textContent=repeat;
 }
 for(const button of document.querySelectorAll('[data-word-filter]'))button.addEventListener('click',()=>{state.wordFilter=button.dataset.wordFilter;for(const b of document.querySelectorAll('[data-word-filter]'))b.classList.toggle('active',b===button);renderWords();});
@@ -136,12 +136,21 @@ function formatPrompt(value){
 function setStudyMode(mode){
  state.studyMode=mode;state.session=null;state.displayedId=null;state.lastAnswer=null;state.correction=null;
  for(const [id,value] of [['normal-training','normal'],['repeat-training','repeat'],['post-training','post']])$(id).classList.toggle('active',mode===value);
- $('study-mode-desc').textContent=mode==='repeat'?'Слова из твоего списка ↻.':mode==='post'?'Слова с оценками «Сомневаюсь» и «Не знаю».':'Сначала плановые повторения, затем новые слова.';
+ $('study-mode-desc').textContent=mode==='repeat'?'Слова из твоего списка ↻.':mode==='post'?'Слова с оценками «Сомневаюсь» и «Не знаю».':'Плановые повторения (включая просроченные) чередуются с новыми словами 1:1.';
  renderStudy();
 }
 $('normal-training').onclick=()=>setStudyMode('normal');$('repeat-training').onclick=()=>setStudyMode('repeat');$('post-training').onclick=()=>setStudyMode('post');
-$('start-repeat').onclick=()=>{setStudyMode('repeat');showPage('study');};$('back-normal').onclick=()=>setStudyMode('normal');
+$('back-normal').onclick=()=>setStudyMode('normal');
 $('word-search').oninput=renderWords;
+let lastStatsDay=localDayKey(Date.now());
+setInterval(()=>{
+ const day=localDayKey(Date.now());
+ if(day!==lastStatsDay){
+  lastStatsDay=day;
+  if(document.querySelector('#page-history.active'))renderHistory();
+  else if(document.querySelector('#page-study.active'))renderStats();
+ }
+},60000);
 function renderStats(){
  const c=dueCounts(state.words,state.progress);
  $('total-words').textContent=state.words.length;
@@ -309,9 +318,9 @@ function renderHistory(){
  const schedule=$('schedule-list');schedule.replaceChildren();
  const scheduled=scheduledReviews(state.words.filter(w=>!flagActive(w.id,'mastered')),state.progress);
  const today=localDayKey(Date.now());
- const items=[[today,scheduled.today],...scheduled.dates];
+ const items=[[today,scheduled.today+scheduled.overdue],...scheduled.dates];
  for(const [key,num] of items){const line=document.createElement('div');line.className='schedule-row';
-   const left=document.createElement('span');left.textContent=key===today?'Сегодня':niceDate(key);
+   const left=document.createElement('span');left.textContent=key===today?'На повторение сегодня':niceDate(key);
    const right=document.createElement('strong');right.textContent=`${num} ${plural(num,'слово','слова','слов')}`;
    line.append(left,right);schedule.append(line);
  }
@@ -342,7 +351,7 @@ async function refreshSheet(){if(!state.sheet){note('sheet-message','Снача�
     note('sheet-message',`Загружено ${words.length} слов. Прогресс сохранён.`);renderStudy();
   }catch(e){note('sheet-message',e.message);}}
 $('save-sheet').onclick=async()=>{state.sheet=$('sheet-url').value.trim();state.range=$('sheet-range').value.trim();saveLocal();await refreshSheet();};
-$('refresh-words').onclick=async()=>{if(state.source==='sheet'){await refreshSheet();renderWords();showPage('words');}else renderWords();};
+
 function authorizeGoogle(){if(!cfg.googleOAuthClientId){note('sheet-message','В config.js нужен googleOAuthClientId.');return;}
   if(!window.google?.accounts?.oauth2){note('sheet-message','Не удалось загрузить Google Identity Services.');return;}
   const client=window.google.accounts.oauth2.initTokenClient({client_id:cfg.googleOAuthClientId,scope:'https://www.googleapis.com/auth/spreadsheets.readonly',callback:(res)=>{if(res.error){note('sheet-message',res.error);return;}state.googleToken=res.access_token;note('sheet-message','Доступ разрешён. Нажми «Подключить / обновить».');}});client.requestAccessToken({prompt:'consent'});

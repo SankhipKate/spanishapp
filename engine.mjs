@@ -96,13 +96,22 @@ export function scheduledReviews(words,progress,now=Date.now()){
   }
   return {today:todayWords.length,overdue:overdue.length,dates:[...future].sort((a,b)=>a[0].localeCompare(b[0]))};
 }
+// Alternate a scheduled review with a new word; preserve all remaining cards.
+export function interleaveReviewsAndNew(due,newWords){
+  const result=[];
+  for(let i=0;i<Math.max(due.length,newWords.length);i++){
+    if(i<due.length)result.push(due[i]);
+    if(i<newWords.length)result.push(newWords[i]);
+  }
+  return result;
+}
 // A missed card needs five DISTINCT intervening words. All three modes
 // may borrow words from the full non-excluded dictionary when necessary.
 export function createSession(words,progress,now=Date.now(),practice=true,random=Math.random,options={}){
   const due=[],newWords=[],later=[];
   for(const w of words){const p=progress[w.id];if(!p)newWords.push(w.id);else if(isDueOnCalendarDay(p.due,now))due.push(w.id);else later.push(w.id);}
   const mode=options.mode||'normal';
-  const queue=mode==='normal'?[...shuffle(due,random),...shuffle(newWords,random)]:shuffle(words.map(w=>w.id),random);
+  const queue=mode==='normal'?interleaveReviewsAndNew(shuffle(due,random),shuffle(newWords,random)):shuffle(words.map(w=>w.id),random);
   const pool=(options.poolWords||words).map(w=>w.id);
   const hardPool=(options.poolWords||words).filter(w=>progress[w.id]?.lastRating==='hard').map(w=>w.id);
   return {queue,retry:[],done:new Set(),words:words.map(w=>w.id),pool,hardPool,later,mode,practice,random,answered:0,again:0,current:null,extra:false,filler:false,shown:new Set(),sessionRatings:new Map(Object.entries(progress||{}).filter(([,p])=>p?.lastRating).map(([id,p])=>[id,p.lastRating]))};

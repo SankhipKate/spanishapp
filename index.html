@@ -10,7 +10,7 @@
   <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-  <link rel="stylesheet" href="./style.css?v=35" />
+  <link rel="stylesheet" href="./style.css?v=36" />
   <title>Слова — тренажёр переводов</title>
 </head>
 <body>
@@ -23,8 +23,8 @@
       <button data-page="study" class="active">Тренировка</button>
       <button data-page="words">Словарь</button>
       <button data-page="history">Прогресс</button>
-      <button data-page="settings">Настройки</button>
-      <button data-page="help">Как работает</button>
+      <button data-page="settings" class="tab-icon" aria-label="Настройки" title="Настройки"><svg viewBox="0 0 24 24" aria-hidden="true" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06-1.92 1.92-.06-.06A1.65 1.65 0 0 0 16 18.4a1.65 1.65 0 0 0-1 .6 1.65 1.65 0 0 0-.4 1.08V21H9.4v-.92A1.65 1.65 0 0 0 8 18.4a1.65 1.65 0 0 0-1.81.34l-.06.06-1.92-1.92.06-.06A1.65 1.65 0 0 0 4.6 15 1.65 1.65 0 0 0 3 14H2v-4h1a1.65 1.65 0 0 0 1.6-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06 1.92-1.92.06.06A1.65 1.65 0 0 0 8 5.6 1.65 1.65 0 0 0 9.4 3.9V3h5.2v.9A1.65 1.65 0 0 0 16 5.6a1.65 1.65 0 0 0 1.81-.34l.06-.06 1.92 1.92-.06.06A1.65 1.65 0 0 0 19.4 9 1.65 1.65 0 0 0 21 10h1v4h-1a1.65 1.65 0 0 0-1.6 1Z"/></svg></button>
+      <button data-page="help" class="tab-icon" aria-label="Как работает" title="Как работает"><svg viewBox="0 0 24 24" aria-hidden="true" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.5 9a2.5 2.5 0 0 1 5 0c0 2-2.5 2-2.5 4"/><path d="M12 17h.01"/></svg></button>
     </nav>
     <main>
       <section id="page-study" class="page active">
@@ -75,33 +75,33 @@
         <div class="panel"><h2>Когда повторять</h2><div id="schedule-list"></div></div>
                 <div class="panel"><div class="history-heading"><h2>История занятий</h2><span class="history-days" id="p-days">0 дней занятий</span></div><div id="history-list"></div><p class="muted tiny" id="history-note"></p></div>
       </section>
-      <section id="page-words" class="page"><div class="page-top"><div><h1>Словарь</h1><p class="muted">Данные берутся из Google Таблицы.</p></div><button id="refresh-words" class="secondary">Обновить</button></div><div class="filter-pills"><button data-word-filter="all" class="active" type="button">Все слова</button><button data-word-filter="fix" type="button">✎ Fix me <span id="fix-count">0</span></button><button data-word-filter="repeat" type="button">↻ Повторить <span id="repeat-count">0</span></button><button data-word-filter="mastered" type="button">✓ Знаю <span id="mastered-count">0</span></button><button id="start-repeat" type="button">Начать повторение</button></div><div class="panel"><input id="word-search" placeholder="Поиск по словам…" aria-label="Поиск по словам"/><div class="table-wrap"><table><thead><tr><th>Русский</th><th>Испанский</th><th>Отметки</th></tr></thead><tbody id="words-table"></tbody></table></div><div id="words-empty" class="muted table-empty">Пока нет слов.</div></div></section>
+      <section id="page-words" class="page"><div class="page-top"><div><h1>Словарь</h1><p class="muted">Данные берутся из Google Таблицы.</p></div></div><div class="filter-pills"><button data-word-filter="all" class="active" type="button">Все слова</button><button data-word-filter="fix" type="button">✎ Fix me <span id="fix-count">0</span></button><button data-word-filter="repeat" type="button">↻ Повторить <span id="repeat-count">0</span></button><button data-word-filter="mastered" type="button">✓ Знаю <span id="mastered-count">0</span></button></div><div class="panel"><input id="word-search" placeholder="Поиск по словам…" aria-label="Поиск по словам"/><div class="table-wrap"><table><thead><tr><th>Русский</th><th>Испанский</th><th>Отметки</th></tr></thead><tbody id="words-table"></tbody></table></div><div id="words-empty" class="muted table-empty">Пока нет слов.</div></div></section>
       <section id="page-settings" class="page"><h1>Настройки</h1><div class="panel form-panel"><h2>Google Таблица</h2><p class="muted">Вставь ссылку на таблицу. Поддерживаются столбцы <code>A — Дубликаты</code> (испанский) и <code>B — Перевод</code> (русский), а также заголовки «Русский» и «Испанский». Из нескольких форм через / берётся только первая. Необязательный столбец <code>ID</code> сохранит историю при редактировании переводов.</p><label for="sheet-url">Ссылка на Google Таблицу</label><input id="sheet-url" type="url" placeholder="https://docs.google.com/spreadsheets/d/…"/><label for="sheet-range">Название листа (для закрытых таблиц)</label><input id="sheet-range" placeholder="Лист1"/><div class="button-row"><button id="save-sheet" class="primary">Подключить / обновить</button><button id="google-sheet-auth" class="secondary">Разрешить доступ Google</button></div><div id="sheet-message" class="inline-msg" role="status"></div><p class="muted tiny">Открытая таблица доступна по ссылке. Для закрытой таблицы требуется разрешение Google, а владельцу приложения — настройка OAuth Client ID.</p></div>
         <div class="panel form-panel"><h2>Тренировка</h2><label for="review-mode">Когда заканчиваются новые слова</label><select id="review-mode"><option value="practice">Продолжать в Постпрактике</option><option value="stop">Сообщить, что слова закончились</option></select><p class="muted tiny">При нажатии «Не знаю» слово обязательно возвращается в текущей тренировке. Оценки «Знаю» и «Сомневаюсь» в дополнительной практике обновляют статус, но сохраняют расписание повторений. «Не знаю» возвращает слово в повторение.</p></div>
-        <div class="panel form-panel"><h2>Обновления</h2><p class="muted">Установлена версия <strong id="settings-app-version">0.35.0</strong></p><button id="check-app-update" class="secondary" type="button">Проверить обновления</button><div id="update-message" class="inline-msg" role="status"></div></div>
+        <div class="panel form-panel"><h2>Обновления</h2><p class="muted">Установлена версия <strong id="settings-app-version">0.36.0</strong></p><button id="check-app-update" class="secondary" type="button">Проверить обновления</button><div id="update-message" class="inline-msg" role="status"></div></div>
         <div class="panel form-panel"><h2>Резервная копия</h2><div class="button-row"><button id="export-data" class="secondary">Экспорт прогресса</button><label for="import-data" class="secondary file-label">Импорт прогресса</label><input type="file" id="import-data" accept="application/json,.json" hidden /></div><div id="import-message" class="inline-msg"></div></div>
       </section>
       <section id="page-help" class="page">
         <h1>Как работает приложение</h1>
-        <div class="panel review-rules" aria-label="Как работают оценки">
-          <h2>Как работают оценки</h2>
+        <div class="panel review-rules" aria-label="Интервальное повторение">
+          <h2>Интервальное повторение</h2>
           <div class="rule-line"><strong>Знаю</strong><span>Первое повторение через 2 дня. Затем интервал увеличивается в зависимости от предыдущих ответов.</span></div>
           <div class="rule-line"><strong>Сомневаюсь</strong><span>Первое повторение через 1 день. При следующих оценках интервал зависит от предыдущих ответов.</span></div>
-          <div class="rule-line"><strong>Не знаю</strong><span>Слово появится ещё раз через пять других разных слов во всех тренировках.</span></div>
+          <div class="rule-line"><strong>Не знаю</strong><span>Слово остаётся назначенным на сегодня и возвращается после пяти других уникальных слов во всех трёх тренировках.</span></div><p>В разделе «Когда повторять» показатель «На повторение сегодня» включает также все просроченные слова. После оценки слово перестаёт учитываться, если новая дата повторения находится в будущем.</p>
         </div>
         <div class="panel"><h2>Начало работы</h2><p>Подключите Google Таблицу в настройках или откройте демонстрационный словарь. В таблице первая колонка содержит испанское слово, вторая — русский перевод. Для одного аккаунта прогресс синхронизируется между устройствами после входа.</p></div>
-        <div class="panel"><h2>Тренировка</h2><p>Сначала предлагаются слова с запланированным повторением на сегодня, затем новые слова. Введите перевод, откройте ответ и оцените себя: «Не знаю», «Сомневаюсь» или «Знаю». Оценка «Не знаю» повторно показывает слово после нескольких других ответов.</p></div>
-        <div class="panel"><h2>Интервальное повторение</h2><p>В обычной тренировке оценка «Знаю» увеличивает интервал до следующего повторения, «Сомневаюсь» назначает более раннее повторение, а «Не знаю» возвращает слово на повторение. Даты можно посмотреть во вкладке «Прогресс».</p></div>
-        <div class="panel"><h2>Постпрактика</h2><p>После Основной тренировки приложение показывает слова с последней оценкой «Сомневаюсь» или «Не знаю». Оценки «Знаю» и «Сомневаюсь» обновляют статус, сохраняя уже запланированную дату повторения. После оценки «Не знаю» слово возвращается на повторение.</p></div>
+        <div class="panel"><h2>Тренировка</h2><p>В Основной тренировке слова с наступившим сроком повторения, включая просроченные, чередуются с новыми по одному. Когда одна из групп заканчивается, продолжается другая. Введите перевод, откройте ответ и оцените себя. При «Не знаю» слово вернётся после пяти других уникальных карточек.</p></div>
+
+        <div class="panel"><h2>Постпрактика</h2><p>Если в настройках выбрано продолжение тренировки, после Основной приложение автоматически переходит к словам с последней оценкой «Сомневаюсь» или «Не знаю». Оценки «Знаю» и «Сомневаюсь» обновляют статус, сохраняя уже запланированную дату повторения. После оценки «Не знаю» слово возвращается на повторение.</p></div>
         <div class="panel"><h2>Отметки слов</h2><p>✓ «Знаю окончательно» исключает слово из всех тренировок. Отметку можно убрать в словаре. Кнопка ↻ добавляет слово в тренировку «Особенные слова», а ✎ помогает отметить слова для исправления. Эти отметки не заменяют обычные оценки знаний.</p></div>
-        <div class="panel"><h2>Словарь, поиск и статистика</h2><p>Слова можно искать без испанских ударений: panuelo найдёт pañuelo, camion — camión, pinguino — pingüino. Оригинальное написание сохраняется. «Прогресс» показывает последний сохранённый ответ для каждого слова, статистику по дням и даты следующих повторений.</p></div>
+        <div class="panel"><h2>Словарь, поиск и статистика</h2><p>Слова можно искать без испанских ударений: panuelo найдёт pañuelo, camion — camión, pinguino — pingüino. Оригинальное написание сохраняется. «Прогресс» показывает статистику по дням и расписание следующих повторений, включая просроченные слова в показателе «На повторение сегодня».</p></div>
         <div class="panel"><h2>Синхронизация и резервные копии</h2><p>Вход через один аккаунт позволяет синхронизировать оценки, историю и отметки между устройствами. В настройках можно экспортировать прогресс в JSON и позже импортировать его обратно.</p></div>
       </section>
     </main>
-    <footer class="app-version-footer"><span id="app-version">SpanishApp · v0.35.0</span></footer>
+    <footer class="app-version-footer"><span id="app-version">SpanishApp · v0.36.0</span></footer>
   </div>
   <dialog id="login-dialog"><form method="dialog" class="dialog-inner"><div class="dialog-header"><h2>Вход</h2><button value="cancel" class="close" aria-label="Закрыть">×</button></div><p class="muted">Войди через Google для синхронизации между устройствами. Существующую резервную копию можно импортировать после входа.</p><button id="google-login" type="button" class="primary full">Войти через Google</button><p class="muted">Или войди по электронной почте:</p><label for="login-email">Email</label><input id="login-email" type="email" placeholder="name@example.com"/><button id="send-login" type="button" class="primary full">Отправить ссылку для входа</button><p id="login-message" class="inline-msg"></p><button id="logout" type="button" class="text-button hidden">Выйти из аккаунта</button></form></dialog>
   <script src="./config.js"></script>
-  <script type="module" src="./app.js?v=35"></script>
+  <script type="module" src="./app.js?v=36"></script>
 </body>
 </html>
