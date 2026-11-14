@@ -4,7 +4,7 @@ import {mergeReviewMaps,mergeHistoryEvents as mergeHistoryEventsCore} from './sy
 import {mergeFlagMaps} from './word-flags.mjs?v=34';
 import {missingCloudEvents} from './sync-outbox.mjs?v=32';
 const $=id=>document.getElementById(id), cfg=window.APP_CONFIG||{};
-const APP_VERSION='0.36.3';
+const APP_VERSION='0.36.4';
 async function fetchPublishedVersion(){
  const response=await fetch(`./version.json?check=${Date.now()}`,{cache:'no-store'});
  if(!response.ok)throw new Error(`HTTP ${response.status}`);
@@ -103,7 +103,7 @@ async function openWordInSheet(word, sheetUrl){
     const {words,gid}=await readSheetWords(sheet,{locateCell:true});
     const current=words.find(candidate=>candidate.id===word.id);
     if(!current)throw new Error('Слово не найдено в таблице. Возможно, его изменили или удалили.');
-    tab.location.replace(`https://docs.google.com/spreadsheets/d/${sheet.id}/edit#gid=${gid}&range=${current.sheetCell}`);
+    tab.location.replace(`https://docs.google.com/spreadsheets/d/${sheet.id}/edit?gid=${gid}#gid=${gid}&range=${current.sheetCell}`);
   }catch(error){
     tab.close();
     window.alert(error.message);
