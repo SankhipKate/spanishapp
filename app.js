@@ -1,10 +1,10 @@
-import {parseCSV,toWords,parseSheetUrl,recordRating,recordAssessment,searchKey,createSession,copySession,nextInSession,rateInSession,dueCounts,compareLetters,recoverLegacyProgress,localDayKey,isDueOnCalendarDay,scheduledReviews,todayTrainingStats,dailyRatingStats} from './engine.mjs?v=36';
+import {parseCSV,toWords,parseSheetUrl,recordRating,recordAssessment,searchKey,createSession,copySession,nextInSession,rateInSession,dueCounts,compareLetters,recoverLegacyProgress,localDayKey,isDueOnCalendarDay,scheduledReviews,todayTrainingStats,dailyRatingStats} from './engine.mjs?v=361';
 import {readApiResponse,readAllRows} from './cloud-api.mjs?v=32';
 import {mergeReviewMaps,mergeHistoryEvents as mergeHistoryEventsCore} from './sync-merge.mjs?v=32';
 import {mergeFlagMaps} from './word-flags.mjs?v=34';
 import {missingCloudEvents} from './sync-outbox.mjs?v=32';
 const $=id=>document.getElementById(id), cfg=window.APP_CONFIG||{};
-const APP_VERSION='0.36.0';
+const APP_VERSION='0.36.1';
 async function fetchPublishedVersion(){
  const response=await fetch(`./version.json?check=${Date.now()}`,{cache:'no-store'});
  if(!response.ok)throw new Error(`HTTP ${response.status}`);
@@ -320,7 +320,7 @@ function renderHistory(){
  const today=localDayKey(Date.now());
  const items=[[today,scheduled.today+scheduled.overdue],...scheduled.dates];
  for(const [key,num] of items){const line=document.createElement('div');line.className='schedule-row';
-   const left=document.createElement('span');left.textContent=key===today?'На повторение сегодня':niceDate(key);
+   const left=document.createElement('span');left.textContent=key===today?'Сегодня':niceDate(key);
    const right=document.createElement('strong');right.textContent=`${num} ${plural(num,'слово','слова','слов')}`;
    line.append(left,right);schedule.append(line);
  }
