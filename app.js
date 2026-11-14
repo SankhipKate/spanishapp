@@ -1,10 +1,10 @@
-import {parseCSV,toWords,parseSheetUrl,recordRating,recordAssessment,searchKey,createSession,copySession,nextInSession,rateInSession,dueCounts,compareLetters,recoverLegacyProgress,localDayKey,isDueOnCalendarDay,scheduledReviews,todayTrainingStats,dailyRatingStats} from './engine.mjs?v=361';
+import {parseCSV,toWords,parseSheetUrl,recordRating,recordAssessment,searchKey,createSession,copySession,nextInSession,rateInSession,dueCounts,compareLetters,recoverLegacyProgress,localDayKey,isDueOnCalendarDay,scheduledReviews,todayTrainingStats,dailyRatingStats} from './engine.mjs?v=362';
 import {readApiResponse,readAllRows} from './cloud-api.mjs?v=32';
 import {mergeReviewMaps,mergeHistoryEvents as mergeHistoryEventsCore} from './sync-merge.mjs?v=32';
 import {mergeFlagMaps} from './word-flags.mjs?v=34';
 import {missingCloudEvents} from './sync-outbox.mjs?v=32';
 const $=id=>document.getElementById(id), cfg=window.APP_CONFIG||{};
-const APP_VERSION='0.36.1';
+const APP_VERSION='0.36.2';
 async function fetchPublishedVersion(){
  const response=await fetch(`./version.json?check=${Date.now()}`,{cache:'no-store'});
  if(!response.ok)throw new Error(`HTTP ${response.status}`);
@@ -136,7 +136,6 @@ function formatPrompt(value){
 function setStudyMode(mode){
  state.studyMode=mode;state.session=null;state.displayedId=null;state.lastAnswer=null;state.correction=null;
  for(const [id,value] of [['normal-training','normal'],['repeat-training','repeat'],['post-training','post']])$(id).classList.toggle('active',mode===value);
- $('study-mode-desc').textContent=mode==='repeat'?'Слова из твоего списка ↻.':mode==='post'?'Слова с оценками «Сомневаюсь» и «Не знаю».':'Плановые повторения (включая просроченные) чередуются с новыми словами 1:1.';
  renderStudy();
 }
 $('normal-training').onclick=()=>setStudyMode('normal');$('repeat-training').onclick=()=>setStudyMode('repeat');$('post-training').onclick=()=>setStudyMode('post');
