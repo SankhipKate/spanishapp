@@ -2,8 +2,8 @@
   "source": "google-sheets",
   "sheetId": "1-2iEgY-dPHprOXpMZ--IBFe2mvDp2Ji9EywGTpcg9Ns",
   "gid": "0",
-  "updatedAt": "2026-11-14T15:15:03.916Z",
-  "count": 1008,
+  "updatedAt": "2026-11-15T10:46:26.759Z",
+  "count": 1009,
   "words": [
     {
       "ru": "справа",
@@ -4036,6 +4036,10 @@
     {
       "ru": "обувь",
       "es": "zapato"
+    },
+    {
+      "ru": "ворон",
+      "es": "cuervo"
     }
   ]
 }
