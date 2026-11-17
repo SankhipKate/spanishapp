@@ -47,6 +47,27 @@ export function toWords(rows, {includeSheetCell=false}={}){
   }
   return words;
 }
+// Keep the stored word identity when only its Russian translation changes.
+// Ambiguous Spanish spellings remain untouched to avoid mixing different words.
+export function retainWordIds(nextWords, previousWords){
+  const bySpanish=new Map(), nextCounts=new Map();
+  const key=w=>String(w.es||'').trim().toLocaleLowerCase('es');
+  for(const w of previousWords||[]){
+    const k=key(w);
+    if(!k)continue;
+    const entries=bySpanish.get(k)||[];
+    entries.push(w);bySpanish.set(k,entries);
+  }
+  for(const w of nextWords){const k=key(w);nextCounts.set(k,(nextCounts.get(k)||0)+1);}
+  return nextWords.map(w=>{
+    if(w.id.startsWith('id:'))return w;
+    const k=key(w), candidates=bySpanish.get(k)||[];
+    if(nextCounts.get(k)!==1||candidates.length!==1)return w;
+    const old=candidates[0];
+    if(!old.id||old.id.startsWith('id:'))return w;
+    return {...w,id:old.id};
+  });
+}
 export function parseSheetUrl(raw){
   const url=new URL(raw);
   if(url.hostname!=='docs.google.com')throw new Error('Нужна ссылка на Google Таблицу (docs.google.com).');

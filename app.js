@@ -1,4 +1,4 @@
-import {parseCSV,toWords,parseSheetUrl,recordRating,recordAssessment,searchKey,createSession,copySession,nextInSession,rateInSession,dueCounts,compareLetters,recoverLegacyProgress,localDayKey,isDueOnCalendarDay,scheduledReviews,todayTrainingStats,dailyRatingStats} from './engine.mjs?v=363';
+import {parseCSV,toWords,parseSheetUrl,recordRating,recordAssessment,searchKey,createSession,copySession,nextInSession,rateInSession,dueCounts,compareLetters,recoverLegacyProgress,retainWordIds,localDayKey,isDueOnCalendarDay,scheduledReviews,todayTrainingStats,dailyRatingStats} from './engine.mjs?v=365';
 import {readApiResponse,readAllRows} from './cloud-api.mjs?v=32';
 import {mergeReviewMaps,mergeHistoryEvents as mergeHistoryEventsCore} from './sync-merge.mjs?v=32';
 import {mergeFlagMaps} from './word-flags.mjs?v=34';
@@ -387,7 +387,7 @@ async function readSheetWords(sheet,{locateCell=false}={}){
 async function refreshSheet(){if(!state.sheet){note('sheet-message','Сначала добавь ссылку на таблицу.');return;}
   note('sheet-message','Читаю Google Таблицу…');try{const {words}=await readSheetWords(parseSheetUrl(state.sheet));
     if(!words.length)throw new Error('В таблице не найдены слова с заполненными русским и испанским переводами.');
-    state.words=words;state.source='sheet';state.session=null;saveLocal();await saveProfile();
+    state.words=retainWordIds(words,state.words);state.source='sheet';state.session=null;saveLocal();await saveProfile();
     note('sheet-message',`Загружено ${words.length} слов. Прогресс сохранён.`);renderStudy();
   }catch(e){note('sheet-message',e.message);}}
 $('save-sheet').onclick=async()=>{state.sheet=$('sheet-url').value.trim();state.range=$('sheet-range').value.trim();saveLocal();await refreshSheet();};
