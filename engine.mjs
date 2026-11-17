@@ -134,7 +134,15 @@ export function createSession(words,progress,now=Date.now(),practice=true,random
   const due=[],newWords=[],later=[];
   for(const w of words){const p=progress[w.id];if(!p)newWords.push(w.id);else if(isDueOnCalendarDay(p.due,now))due.push(w.id);else later.push(w.id);}
   const mode=options.mode||'normal';
-  const queue=mode==='normal'?[...shuffle(due,random),...shuffle(newWords,random)]:shuffle(words.map(w=>w.id),random);
+  const queue=mode==='normal'?[]:shuffle(words.map(w=>w.id),random);
+  if(mode==='normal'){
+    const reviews=shuffle(due,random);
+    const fresh=shuffle(newWords,random);
+    for(let i=0;i<Math.max(reviews.length,fresh.length);i++){
+      if(i<reviews.length)queue.push(reviews[i]);
+      if(i<fresh.length)queue.push(fresh[i]);
+    }
+  }
   const pool=(options.poolWords||words).map(w=>w.id);
   const hardPool=(options.poolWords||words).filter(w=>progress[w.id]?.lastRating==='hard').map(w=>w.id);
   return {queue,retry:[],done:new Set(),words:words.map(w=>w.id),pool,hardPool,later,mode,practice,random,answered:0,again:0,current:null,extra:false,filler:false,shown:new Set(),sessionRatings:new Map(Object.entries(progress||{}).filter(([,p])=>p?.lastRating).map(([id,p])=>[id,p.lastRating]))};
