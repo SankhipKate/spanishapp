@@ -1,8 +1,30 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {parseCSV,toWords,recordRating,createSession,nextInSession,rateInSession,parseSheetUrl,dueCounts,compareLetters} from './engine.mjs';
+import {parseCSV,toWords,recordRating,createSession,nextInSession,rateInSession,parseSheetUrl,dueCounts,compareLetters,retainWordIds} from './engine.mjs';
 test('quoted commas and line breaks in CSV',()=>{const rows=parseCSV('Русский,Испанский\n"красивый, милый","lindo, bonito"\n"строка\n2",casa');assert.equal(rows[1][0],'красивый, милый');assert.equal(rows[2][0],'строка\n2');});
 test('header mapping and persistent IDs',()=>{const words=toWords([['ES','ID','RU'],['casa','one','дом']]);assert.deepEqual(words,[{id:'id:one',ru:'дом',es:'casa',sheetRow:2}]);});
-test('Google sheet URL recognizes gid in fragment',()=>assert.equal(parseSheetUrl('https://docs.google.com/spreadsheets/d/abc_123/edit#gid=456').gid,'456'));
+test('translation correction keeps original progress ID',()=>{
+ const previous=toWords([['ES','RU'],['casa','дом'],['perro','собака']]);
+ const updated=toWords([['ES','RU'],['casa','дом, жилище'],['perro','собака'],['gato','кот']]);
+ const result=retainWordIds(updated,previous);
+ assert.equal(result[0].id,previous[0].id);
+ assert.equal(result[0].ru,'дом, жилище');
+ assert.equal(result[1].id,previous[1].id);
+ assert.equal(result[2].id,updated[2].id);
+ assert.equal(dueCounts(result,{[previous[0].id]:recordRating(null,'easy',1000)}).new,2);
+});
+test('duplicate Spanish words are not silently conflated',()=>{
+ const previous=toWords([['ES','RU'],['banco','банк'],['banco','скамейка']]);
+ const updated=toWords([['ES','RU'],['banco','финансовый банк'],['banco','скамейка']]);
+ const result=retainWordIds(updated,previous);
+ assert.equal(result[0].id,updated[0].id);
+ assert.equal(result[1].id,updated[1].id);
+});
+test('explicit stable IDs remain authoritative',()=>{
+ const previous=toWords([['ES','ID','RU'],['casa','one','дом']]);
+ const updated=toWords([['ES','ID','RU'],['casa','two','дом, жилище']]);
+ assert.equal(retainWordIds(updated,previous)[0].id,'id:two');
+});
+test('Google sheet URL recognizes gid in fragment' ,()=>assert.equal(parseSheetUrl('https://docs.google.com/spreadsheets/d/abc_123/edit#gid=456').gid,'456'));
 test('missed word returns after five other answers, including a second miss',()=>{
  const words=['A','B','C','D','E','F','G','H','I','J','K','L'].map(id=>({id,ru:id,es:id}));const q=createSession(words,{},1000,false,()=>0.999);
  assert.equal(nextInSession(q),'A');rateInSession(q,'again');
