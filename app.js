@@ -4,7 +4,7 @@ import {mergeReviewMaps,mergeHistoryEvents as mergeHistoryEventsCore} from './sy
 import {mergeFlagMaps} from './word-flags.mjs?v=34';
 import {missingCloudEvents} from './sync-outbox.mjs?v=32';
 const $=id=>document.getElementById(id), cfg=window.APP_CONFIG||{};
-const APP_VERSION='0.36.4';
+const APP_VERSION='0.36.6';
 async function fetchPublishedVersion(){
  const response=await fetch(`./version.json?check=${Date.now()}`,{cache:'no-store'});
  if(!response.ok)throw new Error(`HTTP ${response.status}`);
@@ -184,6 +184,8 @@ setInterval(()=>{
  }
 },60000);
 function renderStats(){
+ const scheduled=scheduledReviews(state.words.filter(w=>!flagActive(w.id,'mastered')),state.progress);
+ $('study-due-today').textContent=scheduled.today+scheduled.overdue;
  const c=dueCounts(state.words,state.progress);
  $('total-words').textContent=state.words.length;
 
