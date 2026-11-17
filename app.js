@@ -1,10 +1,10 @@
-import {parseCSV,toWords,parseSheetUrl,recordRating,recordAssessment,searchKey,createSession,copySession,nextInSession,rateInSession,dueCounts,compareLetters,recoverLegacyProgress,retainWordIds,localDayKey,isDueOnCalendarDay,scheduledReviews,todayTrainingStats,dailyRatingStats} from './engine.mjs?v=365';
+import {parseCSV,toWords,parseSheetUrl,recordRating,recordAssessment,searchKey,createSession,copySession,nextInSession,rateInSession,dueCounts,compareLetters,recoverLegacyProgress,retainWordIds,localDayKey,isDueOnCalendarDay,scheduledReviews,todayTrainingStats,dailyRatingStats} from './engine.mjs?v=367';
 import {readApiResponse,readAllRows} from './cloud-api.mjs?v=32';
 import {mergeReviewMaps,mergeHistoryEvents as mergeHistoryEventsCore} from './sync-merge.mjs?v=32';
 import {mergeFlagMaps} from './word-flags.mjs?v=34';
 import {missingCloudEvents} from './sync-outbox.mjs?v=32';
 const $=id=>document.getElementById(id), cfg=window.APP_CONFIG||{};
-const APP_VERSION='0.36.6';
+const APP_VERSION='0.36.7';
 async function fetchPublishedVersion(){
  const response=await fetch(`./version.json?check=${Date.now()}`,{cache:'no-store'});
  if(!response.ok)throw new Error(`HTTP ${response.status}`);

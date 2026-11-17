@@ -1,16 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createSession,scheduledReviews,dueCounts,recordRating} from './engine.mjs';
+import {createSession,nextInSession,rateInSession,scheduledReviews,dueCounts,recordRating} from './engine.mjs';
 
 const words=(...ids)=>ids.map(id=>({id,ru:id,es:id}));
-test('overdue and due today come before new words',()=>{
+test('overdue and due today alternate with new words',()=>{
  const today=new Date(2026,10,13,12).getTime();
  const progress={r1:{due:new Date(2026,10,11,12).getTime()},r2:{due:today}};
- const session=createSession(words('r1','r2','n1','n2'),progress,today,false,()=>0.999,{mode:'normal'});
- assert.deepEqual(session.queue,['r1','r2','n1','n2']);
- const schedule=scheduledReviews(words('r1','r2','n1','n2'),progress,today);
+ const session=createSession(words('r1','r2','n1','n2','n3'),progress,today,false,()=>0.999,{mode:'normal'});
+ for(const id of ['r1','n1','r2','n2','n3']){
+  assert.equal(nextInSession(session),id);
+  rateInSession(session,'easy');
+ }
+ assert.equal(nextInSession(session),null);
+ const schedule=scheduledReviews(words('r1','r2','n1','n2','n3'),progress,today);
  assert.equal(schedule.today+schedule.overdue,2);
- assert.equal(dueCounts(words('r1','r2','n1','n2'),progress,today).due,2);
+ assert.equal(dueCounts(words('r1','r2','n1','n2','n3'),progress,today).due,2);
 });
 test('review counts decrease after future rating, but unknown stays due',()=>{
  const today=new Date(2026,10,13,12).getTime();
