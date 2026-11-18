@@ -4,7 +4,7 @@ import {mergeReviewMaps,mergeHistoryEvents as mergeHistoryEventsCore} from './sy
 import {mergeFlagMaps} from './word-flags.mjs?v=34';
 import {missingCloudEvents} from './sync-outbox.mjs?v=32';
 const $=id=>document.getElementById(id), cfg=window.APP_CONFIG||{};
-const APP_VERSION='0.36.7';
+const APP_VERSION='0.36.8';
 async function fetchPublishedVersion(){
  const response=await fetch(`./version.json?check=${Date.now()}`,{cache:'no-store'});
  if(!response.ok)throw new Error(`HTTP ${response.status}`);
@@ -190,6 +190,7 @@ function renderStats(){
  $('total-words').textContent=state.words.length;
 
  $('new-words').textContent=c.new;
+  $('study-new-words').textContent=c.new;
  // Training figures cover today's distinct words and their last rating today.
  const today=todayTrainingStats(state.history);
  $('study-reviewed').textContent=today.reviewed;
