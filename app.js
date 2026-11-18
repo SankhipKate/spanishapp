@@ -4,7 +4,7 @@ import {mergeReviewMaps,mergeHistoryEvents as mergeHistoryEventsCore} from './sy
 import {mergeFlagMaps} from './word-flags.mjs?v=34';
 import {missingCloudEvents} from './sync-outbox.mjs?v=32';
 const $=id=>document.getElementById(id), cfg=window.APP_CONFIG||{};
-const APP_VERSION='0.36.8';
+const APP_VERSION='0.36.9';
 async function fetchPublishedVersion(){
  const response=await fetch(`./version.json?check=${Date.now()}`,{cache:'no-store'});
  if(!response.ok)throw new Error(`HTTP ${response.status}`);
@@ -283,7 +283,8 @@ async function rate(rating){
  const word=state.words.find(w=>w.id===id);
  const at=Math.max(Date.now(),(correction?.at||0)+1,(state.progress[id]?.updated||0)+1);
  const result=rateInSession(s,rating),special=state.studyMode==='repeat';
- const save=!special&&(!result.filler||rating==='again')&&(!flagActive(id,'mastered')||rating==='again');
+ const firstExcludedKnownAnswer=state.studyMode==='normal'&&!beforeProgress&&rating==='easy';
+ const save=!special&&(!result.filler||rating==='again')&&(!flagActive(id,'mastered')||rating==='again'||firstExcludedKnownAnswer);
  if(save)state.progress[id]=result.extra&&rating!=='again'?recordAssessment(beforeProgress,rating,at):recordRating(beforeProgress,rating,at);
  const event={at,id,rating,extra:special||result.extra};
  state.history.push(event);
