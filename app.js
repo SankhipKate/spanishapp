@@ -4,7 +4,7 @@ import {mergeReviewMaps,mergeHistoryEvents as mergeHistoryEventsCore} from './sy
 import {mergeFlagMaps} from './word-flags.mjs?v=34';
 import {missingCloudEvents} from './sync-outbox.mjs?v=32';
 const $=id=>document.getElementById(id), cfg=window.APP_CONFIG||{};
-const APP_VERSION='0.36.9';
+const APP_VERSION='0.36.10';
 async function fetchPublishedVersion(){
  const response=await fetch(`./version.json?check=${Date.now()}`,{cache:'no-store'});
  if(!response.ok)throw new Error(`HTTP ${response.status}`);
@@ -167,7 +167,7 @@ function formatPrompt(value){
  el.append(lead);
 }
 function setStudyMode(mode){
- state.studyMode=mode;state.session=null;state.displayedId=null;state.lastAnswer=null;state.correction=null;
+ state.studyMode=mode;state.session=null;state.displayedId=null;state.lastAnswer=null;state.correction=null;state.postInitialIds=null;state.postShownIds=new Set();
  for(const [id,value] of [['normal-training','normal'],['repeat-training','repeat'],['post-training','post']])$(id).classList.toggle('active',mode===value);
  renderStudy();
 }
@@ -183,7 +183,9 @@ setInterval(()=>{
   else if(document.querySelector('#page-study.active'))renderStats();
  }
 },60000);
-function renderStats(){
+// The Postpractice counter tracks FIRST DISPLAY of the starting cohort, not ratings or retries.
+ state.postInitialIds??=null;state.postShownIds??=new Set();
+ function renderStats(){
  const scheduled=scheduledReviews(state.words.filter(w=>!flagActive(w.id,'mastered')),state.progress);
  $('study-due-today').textContent=scheduled.today+scheduled.overdue;
  const c=dueCounts(state.words,state.progress);
@@ -194,9 +196,7 @@ function renderStats(){
  // Training figures cover today's distinct words and their last rating today.
  const today=todayTrainingStats(state.history);
  $('study-reviewed').textContent=today.reviewed;
- $('study-easy').textContent=today.easy;
- $('study-hard').textContent=today.hard;
- $('study-again').textContent=today.again;
+ $('study-post-remaining').textContent=state.studyMode==='post'&&state.postInitialIds?state.postInitialIds.size-state.postShownIds.size:0;
 }
 function renderStudy(){
  renderStats();
@@ -214,6 +214,7 @@ function renderStudy(){
  if(!active){$('repeat-finished').classList.add('hidden');return;}
  if(!state.session||!Array.isArray(state.session.queue)){
    state.session=createSession(trainingWords,state.studyMode==='repeat'?{}:state.progress,Date.now(),false,Math.random,{mode:state.studyMode,poolWords:pool});
+    if(state.studyMode==='post'){state.postInitialIds=new Set(trainingWords.map(w=>w.id));state.postShownIds=new Set();renderStats();}
    if(state.studyMode==='repeat'){
      state.session.hardPool=pool.filter(w=>state.progress[w.id]?.lastRating==='hard').map(w=>w.id);
    }
@@ -231,10 +232,11 @@ function renderStudy(){
  renderStudyFlags();
  if(state.displayedId===id)return;
  state.displayedId=id;
- formatPrompt(word.ru);$('answer-word').textContent=word.es;
+ if(state.studyMode==='post'&&state.postInitialIds?.has(id)&&!state.postShownIds.has(id)){state.postShownIds.add(id);renderStats();}
+  formatPrompt(word.ru);$('answer-word').textContent=word.es;
  $('typed-answer').readOnly=false;$('typed-answer').value='';$('answer-compare').replaceChildren();$('answer-compare').classList.add('hidden');$('revealed-area').classList.add('hidden');$('reveal').classList.remove('hidden');focusAnswer();
 }
-function beginNew(){state.session=null;state.displayedId=null;state.lastAnswer=null;state.correction=null;renderStudy();}
+function beginNew(){state.session=null;state.displayedId=null;state.lastAnswer=null;state.correction=null;state.postInitialIds=null;state.postShownIds=new Set();renderStudy();}
 function renderLetterDiff(typed,expected){
  const ref=$('answer-word');ref.replaceChildren();
  if(!typed){ref.textContent=expected;return;}
@@ -388,13 +390,14 @@ async function readSheetWords(sheet,{locateCell=false}={}){
     throw error;
   }
 }
-async function refreshSheet(){if(!state.sheet){note('sheet-message','Сначала добавь ссылку на таблицу.');return;}
-  note('sheet-message','Читаю Google Таблицу…');try{const {words}=await readSheetWords(parseSheetUrl(state.sheet));
+async function refreshSheet(messageId='sheet-message'){if(!state.sheet){note(messageId,'Сначала добавь ссылку на таблицу.');return;}
+  note(messageId,'Читаю Google Таблицу…');try{const {words}=await readSheetWords(parseSheetUrl(state.sheet));
     if(!words.length)throw new Error('В таблице не найдены слова с заполненными русским и испанским переводами.');
     state.words=retainWordIds(words,state.words);state.source='sheet';state.session=null;saveLocal();await saveProfile();
-    note('sheet-message',`Загружено ${words.length} слов. Прогресс сохранён.`);renderStudy();
-  }catch(e){note('sheet-message',e.message);}}
+    note(messageId,`Загружено ${words.length} слов. Прогресс сохранён.`);renderStudy();
+  }catch(e){note(messageId,e.message);}}
 $('save-sheet').onclick=async()=>{state.sheet=$('sheet-url').value.trim();state.range=$('sheet-range').value.trim();saveLocal();await refreshSheet();};
+ $('history-refresh').onclick=async()=>{await refreshSheet('history-refresh-message');renderHistory();};
 
 function authorizeGoogle(){if(!cfg.googleOAuthClientId){note('sheet-message','В config.js нужен googleOAuthClientId.');return;}
   if(!window.google?.accounts?.oauth2){note('sheet-message','Не удалось загрузить Google Identity Services.');return;}
