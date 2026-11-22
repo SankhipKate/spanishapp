@@ -256,26 +256,26 @@ export function recoverLegacyProgress(progress,history=[]){
     minimumAnswers:records.length};
 }
 
-// Today's training overview counts distinct words, using each word's latest
-// assessment today. A repeated "again" never inflates the word count.
+// Use the same local-day totals in Training and in the history view.
 export function todayTrainingStats(history, now=Date.now()){
-  return dailyRatingStats(history).get(localDayKey(now)) || {reviewed:0,again:0,hard:0,easy:0};
+  return dailyRatingStats(history).get(localDayKey(now)) || {shows:0,reviewed:0,again:0,hard:0,easy:0};
 }
 
-// For each local calendar day, keep only the last rating of each distinct word.
-// The same reducer powers both the training counters and the history page.
+// Count every answer as a show and use each word's last rating for the breakdown.
 export function dailyRatingStats(history){
   const days=new Map();
   for(const entry of Array.isArray(history)?history:[]){
     if(!entry||typeof entry.id!=='string'||!Number.isFinite(entry.at)||!['again','hard','easy'].includes(entry.rating))continue;
     const day=localDayKey(entry.at);
-    if(!days.has(day))days.set(day,new Map());
-    const existing=days.get(day).get(entry.id);
-    if(!existing||entry.at>=existing.at)days.get(day).set(entry.id,entry);
+    if(!days.has(day))days.set(day,{shows:0,last:new Map()});
+    const stats=days.get(day);
+    stats.shows++;
+    const existing=stats.last.get(entry.id);
+    if(!existing||entry.at>=existing.at)stats.last.set(entry.id,entry);
   }
   const result=new Map();
-  for(const [day,last] of days){
-    const stats={reviewed:last.size,again:0,hard:0,easy:0};
+  for(const [day,{shows,last}] of days){
+    const stats={shows,reviewed:last.size,again:0,hard:0,easy:0};
     for(const e of last.values())stats[e.rating]++;
     result.set(day,stats);
   }

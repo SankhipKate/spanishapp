@@ -120,7 +120,7 @@ test('headerless spreadsheet includes first word and first two columns',()=>{
 });
 
 import {todayTrainingStats} from './engine.mjs';
-test("todayTrainingStats counts only today’s distinct words and latest rating",()=>{
+test("todayTrainingStats counts all today’s answers and each word’s latest rating",()=>{
  const now=new Date(2026,9,27,18,0).getTime();
  const t=(day,h)=>new Date(2026,9,day,h).getTime();
  const out=todayTrainingStats([
@@ -130,15 +130,15 @@ test("todayTrainingStats counts only today’s distinct words and latest rating"
   {id:'a',at:t(27,12),rating:'easy'},
   {id:'c',at:t(27,13),rating:'again'}
  ],now);
- assert.deepEqual(out,{reviewed:3,again:1,hard:1,easy:1});
+ assert.deepEqual(out,{shows:4,reviewed:3,again:1,hard:1,easy:1});
 });
 test('todayTrainingStats ignores old days and invalid entries',()=>{
  const now=new Date(2026,9,27,12).getTime();
- assert.deepEqual(todayTrainingStats([{id:'a',at:new Date(2026,9,26,23).getTime(),rating:'easy'}],now),{reviewed:0,again:0,hard:0,easy:0});
+ assert.deepEqual(todayTrainingStats([{id:'a',at:new Date(2026,9,26,23).getTime(),rating:'easy'}],now),{shows:0,reviewed:0,again:0,hard:0,easy:0});
 });
 
 import {dailyRatingStats,localDayKey} from './engine.mjs';
-test('history uses the last rating per word per calendar date exactly like training',()=>{
+test('history totals all answers by calendar date and uses each word’s last rating',()=>{
  const at=(day,h)=>new Date(2026,9,day,h).getTime();
  const log=[
   {id:'uno',at:at(27,10),rating:'again'},
@@ -148,13 +148,13 @@ test('history uses the last rating per word per calendar date exactly like train
   {id:'uno',at:at(28,10),rating:'hard'},
  ];
  const day27=dailyRatingStats(log).get(localDayKey(at(27,18)));
- assert.deepEqual(day27,{reviewed:3,again:0,hard:1,easy:2});
+ assert.deepEqual(day27,{shows:4,reviewed:3,again:0,hard:1,easy:2});
  assert.deepEqual(day27,todayTrainingStats(log,at(27,18)));
- assert.deepEqual(dailyRatingStats(log).get(localDayKey(at(28,18))),{reviewed:1,again:0,hard:1,easy:0});
+ assert.deepEqual(dailyRatingStats(log).get(localDayKey(at(28,18))),{shows:1,reviewed:1,again:0,hard:1,easy:0});
 });
 test('history ignores invalid entries and keeps the latest click on same timestamp',()=>{
  const at=new Date(2026,9,27,18).getTime();
- assert.deepEqual(dailyRatingStats([{id:'a',at,rating:'again'},{id:'a',at,rating:'easy'},{id:'b',at,rating:'invalid'}]).get(localDayKey(at)),{reviewed:1,again:0,hard:0,easy:1});
+ assert.deepEqual(dailyRatingStats([{id:'a',at,rating:'again'},{id:'a',at,rating:'easy'},{id:'b',at,rating:'invalid'}]).get(localDayKey(at)),{shows:2,reviewed:1,again:0,hard:0,easy:1});
 });
 
 test('only the substituted letter is marked in chocolate',()=>{

@@ -24,5 +24,5 @@ test('changing easy to hard recalculates from prior progress, not the accidental
 });
 test('latest correcting event supersedes prior rating in daily statistics',()=>{
  const now=Date.now();const history=[{id:'a',at:now-5,rating:'easy'},{id:'a',at:now,rating:'hard'}];
- assert.deepEqual(todayTrainingStats(history,now),{reviewed:1,again:0,hard:1,easy:0});
+ assert.deepEqual(todayTrainingStats(history,now),{shows:2,reviewed:1,again:0,hard:1,easy:0});
 });
