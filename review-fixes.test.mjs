@@ -46,7 +46,7 @@ test('latest assessment updates overall and daily statistics',()=>{
   {id:'a',at:now,rating:'easy',extra:true}
  ];
  assert.deepEqual(todayTrainingStats(history,now),
-  {reviewed:1,again:0,hard:0,easy:1});
+  {shows:2,reviewed:1,again:0,hard:0,easy:1});
 });
 
 test('mastered words stay in dictionary but leave scheduling totals',()=>{
