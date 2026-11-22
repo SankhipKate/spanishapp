@@ -1,10 +1,11 @@
-import {parseCSV,toWords,parseSheetUrl,recordRating,recordAssessment,searchKey,createSession,copySession,nextInSession,rateInSession,dueCounts,compareLetters,recoverLegacyProgress,retainWordIds,localDayKey,isDueOnCalendarDay,scheduledReviews,todayTrainingStats,dailyRatingStats} from './engine.mjs?v=367';
+import {parseCSV,toWords,parseSheetUrl,recordRating,recordAssessment,searchKey,createSession,copySession,nextInSession,rateInSession,dueCounts,compareLetters,recoverLegacyProgress,retainWordIds,localDayKey,isDueOnCalendarDay,scheduledReviews,dailyRatingStats} from './engine.mjs?v=367';
 import {readApiResponse,readAllRows} from './cloud-api.mjs?v=32';
 import {mergeReviewMaps,mergeHistoryEvents as mergeHistoryEventsCore} from './sync-merge.mjs?v=32';
 import {mergeFlagMaps} from './word-flags.mjs?v=34';
 import {missingCloudEvents} from './sync-outbox.mjs?v=32';
+import {mergeShowCounts,showCountKey,showsByDay} from './show-counts.mjs?v=1';
 const $=id=>document.getElementById(id), cfg=window.APP_CONFIG||{};
-const APP_VERSION='0.36.10';
+const APP_VERSION='0.36.11';
 async function fetchPublishedVersion(){
  const response=await fetch(`./version.json?check=${Date.now()}`,{cache:'no-store'});
  if(!response.ok)throw new Error(`HTTP ${response.status}`);
@@ -37,6 +38,7 @@ const state={words:[],progress:{},sheet:'',range:'',reviewMode:'practice',sessio
 const hasBackend=!!(cfg.supabaseUrl&&cfg.supabaseAnonKey);
 let cloudLoading=false;
 let needsCloudRepair=false;
+let needsShowRepair=false;
 let cloudRetryTimer=null;
 function scheduleCloudRepair(delay=60000){
  if(!state.user)return;
@@ -54,12 +56,64 @@ function markCloudRepairNeeded(message){
  $('study-notice').classList.remove('hidden');
  scheduleCloudRepair();
 }
-window.addEventListener('online',()=>{if(needsCloudRepair&&state.user)scheduleCloudRepair(0);});
+window.addEventListener('online',()=>{if((needsCloudRepair||needsShowRepair)&&state.user)scheduleCloudRepair(0);});
 document.addEventListener('visibilitychange',()=>{
- if(document.visibilityState==='visible'&&needsCloudRepair&&state.user)scheduleCloudRepair(0);
+ if(document.visibilityState==='visible'&&(needsCloudRepair||needsShowRepair)&&state.user)scheduleCloudRepair(0);
 });
 const jsonHeaders=()=>({'apikey':cfg.supabaseAnonKey,'Content-Type':'application/json',...(state.accessToken?{'Authorization':`Bearer ${state.accessToken}`}:{})});
 const localKey=()=>`${KEY}:${state.user?.id||'guest'}`;
+const showStoragePrefix=()=>`${localKey()}:card-shows:`;
+let showSourceId;
+let ownShowCounts=new Map();
+let showCounts=new Map();
+let showSyncQueue=Promise.resolve();
+function readShowCounts(value){
+  try{const rows=JSON.parse(value);return Array.isArray(rows)?rows:[];}catch{return [];}
+}
+function loadShowCounts(){
+  ownShowCounts=new Map();
+  showCounts=new Map();
+  try{
+    const prefix=showStoragePrefix();
+    for(let i=0;i<localStorage.length;i++){
+      const key=localStorage.key(i);
+      if(!key?.startsWith(prefix))continue;
+      const rows=readShowCounts(localStorage.getItem(key));
+      mergeShowCounts(showCounts,rows);
+      if(showSourceId&&key===prefix+showSourceId)mergeShowCounts(ownShowCounts,rows);
+    }
+  }catch(e){console.warn('Card show counts unavailable',e);}
+}
+function saveShowCounts(suffix,counts){
+  try{localStorage.setItem(showStoragePrefix()+suffix,JSON.stringify([...counts.values()]));}
+  catch(e){console.warn('Card show counts could not be saved',e);}
+}
+function refreshShowStats(){
+  if($('page-history').classList.contains('active'))renderHistory();
+  else renderShowCounter();
+}
+window.addEventListener('storage',event=>{
+  if(!event.key?.startsWith(showStoragePrefix())||!event.newValue)return;
+  mergeShowCounts(showCounts,readShowCounts(event.newValue));
+  refreshShowStats();
+});
+function recordCardShow(){
+  showSourceId??=crypto.randomUUID();
+  const day=localDayKey(Date.now());
+  const row={day,source_id:showSourceId,count:1};
+  row.count+=(ownShowCounts.get(showCountKey(row))?.count||0);
+  mergeShowCounts(ownShowCounts,[row]);
+  mergeShowCounts(showCounts,[row]);
+  // Each open page writes its own counters so another tab cannot overwrite them.
+  saveShowCounts(showSourceId,ownShowCounts);
+  renderShowCounter();
+  if(state.user&&!needsShowRepair){
+    const uid=state.user.id;
+    showSyncQueue=showSyncQueue.then(async()=>{
+      if(state.user?.id===uid&&!needsShowRepair)await uploadShowCounts(uid,[row]);
+    }).catch(e=>{if(state.user?.id===uid)handleShowSyncError(e);});
+  }
+}
 const protectedKey=uid=>`${KEY}:verified-cloud:${uid}`;
 const mergeHistoryEvents=(oldEvents,newEvents)=>mergeHistoryEventsCore(oldEvents,newEvents,eventUUID);
 function saveVerifiedCloud(){
@@ -77,7 +131,7 @@ function restoreVerifiedCloud(){
 }
 const storage=()=>{try{return JSON.parse(localStorage.getItem(localKey())||'{}')}catch{return {}}};
 function saveLocal(){try{localStorage.setItem(localKey(),JSON.stringify({progress:state.progress,sheet:state.sheet,range:state.range,reviewMode:state.reviewMode,source:state.source,words:state.words,history:state.history,legacy:state.legacy,flags:state.flags}));}catch(e){console.warn('Local save failed',e);}}
-function loadLocal(){const s=storage();state.progress=s.progress||{};state.sheet=s.sheet||cfg.defaultSheetUrl||'';state.range=s.range||'';state.reviewMode=s.reviewMode||'practice';state.source=s.source||'';state.words=s.words||[];state.history=Array.isArray(s.history)?s.history:[];state.flags=mergeFlagMaps(state.flags,s.flags);
+function loadLocal(){loadShowCounts();const s=storage();state.progress=s.progress||{};state.sheet=s.sheet||cfg.defaultSheetUrl||'';state.range=s.range||'';state.reviewMode=s.reviewMode||'practice';state.source=s.source||'';state.words=s.words||[];state.history=Array.isArray(s.history)?s.history:[];state.flags=mergeFlagMaps(state.flags,s.flags);
   // One-time migration from the existing per-word progress (without changing it).
   state.legacy=s.legacy||recoverLegacyProgress(state.progress,state.history);
   if(!s.legacy)saveLocal();
@@ -87,7 +141,7 @@ function focusAnswer(){
   // Wait for the current card to be inserted and visible.
   requestAnimationFrame(()=>{const field=$('typed-answer');if(document.querySelector('#page-study.active')&&!field.readOnly&&!$('study-card').classList.contains('hidden'))field.focus({preventScroll:true});});
 }
-function showPage(page){for(const el of document.querySelectorAll('.page'))el.classList.toggle('active',el.id===`page-${page}`);for(const b of document.querySelectorAll('[data-page]'))b.classList.toggle('active',b.dataset.page===page);if(page==='study'){renderStudy();focusAnswer();}if(page==='words')renderWords();if(page==='settings')renderSettings();if(page==='history')renderHistory();}
+function showPage(page){if(page!=='study')shownStudyCard=null;for(const el of document.querySelectorAll('.page'))el.classList.toggle('active',el.id===`page-${page}`);for(const b of document.querySelectorAll('[data-page]'))b.classList.toggle('active',b.dataset.page===page);if(page==='study'){renderStudy();focusAnswer();}if(page==='words')renderWords();if(page==='settings')renderSettings();if(page==='history')renderHistory();}
 for(const b of document.querySelectorAll('[data-page]'))b.addEventListener('click',()=>showPage(b.dataset.page));
 $('go-settings').onclick=()=>showPage('settings');
 function renderSettings(){$('sheet-url').value=state.sheet;$('sheet-range').value=state.range;$('review-mode').value=state.reviewMode;$('google-sheet-auth').classList.toggle('hidden',!cfg.googleOAuthClientId);}
@@ -166,7 +220,24 @@ function formatPrompt(value){
  }
  el.append(lead);
 }
+let shownStudyCard=null;
+let showFrame;
+function trackVisibleStudyCard(){
+  if(showFrame!==undefined)return;
+  showFrame=requestAnimationFrame(()=>{
+    showFrame=undefined;
+    const id=state.displayedId;
+    if(document.visibilityState!=='visible'||!$('page-study').classList.contains('active')||
+       $('study-card').classList.contains('hidden')||!id||shownStudyCard===id)return;
+    shownStudyCard=id;
+    recordCardShow();
+  });
+}
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState==='visible')trackVisibleStudyCard();
+});
 function setStudyMode(mode){
+ shownStudyCard=null;
  state.studyMode=mode;state.session=null;state.displayedId=null;state.lastAnswer=null;state.correction=null;state.postInitialIds=null;state.postShownIds=new Set();
  for(const [id,value] of [['normal-training','normal'],['repeat-training','repeat'],['post-training','post']])$(id).classList.toggle('active',mode===value);
  renderStudy();
@@ -185,7 +256,10 @@ setInterval(()=>{
 },60000);
 // The Postpractice counter tracks FIRST DISPLAY of the starting cohort, not ratings or retries.
  state.postInitialIds??=null;state.postShownIds??=new Set();
- function renderStats(){
+function renderShowCounter(){
+ $('study-shows').textContent=showsByDay(showCounts).get(localDayKey(Date.now()))||0;
+}
+function renderStats(){
  const scheduled=scheduledReviews(state.words.filter(w=>!flagActive(w.id,'mastered')),state.progress);
  $('study-due-today').textContent=scheduled.today+scheduled.overdue;
  const c=dueCounts(state.words,state.progress);
@@ -193,9 +267,7 @@ setInterval(()=>{
 
  $('new-words').textContent=c.new;
   $('study-new-words').textContent=c.new;
- // Training figures cover today's distinct words and their last rating today.
- const today=todayTrainingStats(state.history);
- $('study-reviewed').textContent=today.reviewed;
+ renderShowCounter();
  $('study-post-remaining').textContent=state.studyMode==='post'&&state.postInitialIds?state.postInitialIds.size-state.postShownIds.size:0;
 }
 function renderStudy(){
@@ -211,7 +283,7 @@ function renderStudy(){
  }
  $('study-empty').classList.toggle('hidden',active);
  $('study-card').classList.toggle('hidden',!active);
- if(!active){$('repeat-finished').classList.add('hidden');return;}
+ if(!active){shownStudyCard=null;$('repeat-finished').classList.add('hidden');return;}
  if(!state.session||!Array.isArray(state.session.queue)){
    state.session=createSession(trainingWords,state.studyMode==='repeat'?{}:state.progress,Date.now(),false,Math.random,{mode:state.studyMode,poolWords:pool});
     if(state.studyMode==='post'){state.postInitialIds=new Set(trainingWords.map(w=>w.id));state.postShownIds=new Set();renderStats();}
@@ -221,6 +293,7 @@ function renderStudy(){
  }
  const id=nextInSession(state.session);
  if(!id){
+   shownStudyCard=null;
    if(state.studyMode==='normal'&&!state.session.blocked&&state.reviewMode==='practice'&&postWords.length){setStudyMode('post');return;}
    $('study-card').classList.add('hidden');$('repeat-finished').classList.remove('hidden');
    $('repeat-finished').querySelector('h2').textContent=state.session.blocked?'Недостаточно разных слов для повторения':state.studyMode==='repeat'?'Особенные слова завершены':'На сегодня всё';
@@ -230,11 +303,12 @@ function renderStudy(){
  const word=state.words.find(w=>w.id===id);
  if(!word){state.session=null;state.displayedId=null;renderStudy();return;}
  renderStudyFlags();
- if(state.displayedId===id)return;
+ if(state.displayedId===id){trackVisibleStudyCard();return;}
  state.displayedId=id;
+ shownStudyCard=null;
  if(state.studyMode==='post'&&state.postInitialIds?.has(id)&&!state.postShownIds.has(id)){state.postShownIds.add(id);renderStats();}
   formatPrompt(word.ru);$('answer-word').textContent=word.es;
- $('typed-answer').readOnly=false;$('typed-answer').value='';$('answer-compare').replaceChildren();$('answer-compare').classList.add('hidden');$('revealed-area').classList.add('hidden');$('reveal').classList.remove('hidden');focusAnswer();
+ $('typed-answer').readOnly=false;$('typed-answer').value='';$('answer-compare').replaceChildren();$('answer-compare').classList.add('hidden');$('revealed-area').classList.add('hidden');$('reveal').classList.remove('hidden');trackVisibleStudyCard();focusAnswer();
 }
 function beginNew(){state.session=null;state.displayedId=null;state.lastAnswer=null;state.correction=null;state.postInitialIds=null;state.postShownIds=new Set();renderStudy();}
 function renderLetterDiff(typed,expected){
@@ -306,6 +380,27 @@ async function rate(rating){
  await progressSyncQueue;
 }
 $('rate-again').onclick=()=>rate('again');$('rate-hard').onclick=()=>rate('hard');$('rate-easy').onclick=()=>rate('easy');
+function renderDateRows(id,rows,createRow,emptyMessage){
+ const root=$(id);
+ const button=$(`${id}-toggle`);
+ const hasMore=rows.length>3;
+ const expanded=hasMore&&button.getAttribute('aria-expanded')==='true';
+ button.classList.toggle('hidden',!hasMore);
+ button.setAttribute('aria-expanded',String(expanded));
+ button.textContent=expanded?'Свернуть':'Развернуть';
+ root.replaceChildren(...(expanded?rows:rows.slice(0,3)).map(createRow));
+ if(!rows.length){
+   const label=document.createElement('p');label.className='muted';label.textContent=emptyMessage;
+   root.append(label);
+ }
+}
+for(const id of ['history-list','schedule-list']){
+ const button=$(`${id}-toggle`);
+ button.onclick=()=>{
+   button.setAttribute('aria-expanded',String(button.getAttribute('aria-expanded')!=='true'));
+   renderHistory();
+ };
+}
 function renderHistory(){
  renderStats();updateFlagCounts();
  const currentWordIds=new Set(state.words.map(w=>w.id));
@@ -315,9 +410,11 @@ function renderHistory(){
  const journal=(state.history||[]).filter(x=>x&&Number.isFinite(x.at));
  const dayKey=ts=>localDayKey(ts);
  const daily=dailyRatingStats(journal);
+ const shows=showsByDay(showCounts);
  const buckets=new Map();
  const getDay=key=>{if(!buckets.has(key))buckets.set(key,{legacy:new Set(),summary:daily.get(key)||null});return buckets.get(key)};
  for(const key of daily.keys())getDay(key);
+ for(const key of shows.keys())getDay(key);
  // Retain recoverable old-day evidence without double-counting later journal entries.
  const recorded=new Set(journal.map(e=>`${e.id}|${e.at}`));
  for(const [id,r] of reviewed){
@@ -337,31 +434,37 @@ function renderHistory(){
  $('learned-progress-bar').setAttribute('aria-valuenow',Math.min(percent,100));
  $('learned-progress-caption').textContent=`Изучено ${learned} из ${total} слов · ${percent}%`;
  $('p-days').textContent=`${buckets.size} ${plural(buckets.size,'день','дня','дней')} занятий`;
- const root=$('history-list');root.replaceChildren();
  const sorted=[...buckets].sort((a,b)=>b[0].localeCompare(a[0]));
  const niceDate=s=>s.split('-').reverse().join('.');
- for(const [key,d] of sorted){
+ renderDateRows('history-list',sorted,([key,d])=>{
    const line=document.createElement('div');line.className='progress-history-row';
    const date=document.createElement('strong');date.textContent=niceDate(key);
    const details=document.createElement('span');
+   const showLabel=`Показов ${shows.get(key)??'—'}`;
    const summary=d.summary;
-   if(summary){details.textContent=`${summary.reviewed} ${plural(summary.reviewed,'ответ','ответа','ответов')} · Не знаю ${summary.again} · Сомневаюсь ${summary.hard} · Знаю ${summary.easy}`;
+   if(summary||shows.has(key)){
+     const {reviewed=0,again=0,hard=0,easy=0}=summary||{};
+     details.textContent=`${showLabel}, слов ${reviewed}, из них не знаю ${again}, сомневаюсь ${hard}, знаю ${easy}`;
      if(d.legacy.size)details.textContent+=` · ещё ${d.legacy.size} ${plural(d.legacy.size,'слово','слова','слов')} без полной истории`;
-   }else if(d.legacy.size){details.textContent=`${d.legacy.size} ${plural(d.legacy.size,'изученное слово','изученных слова','изученных слов')}`;}
-   else{details.textContent='Ранее занимались · подробности не сохранились';}
-   line.append(date,details);root.append(line);
- }
- if(!sorted.length){const empty=document.createElement('p');empty.className='muted';empty.textContent='После первой тренировки здесь появятся результаты.';root.append(empty);}
+   }else if(d.legacy.size){
+     details.textContent=`${showLabel}, ${d.legacy.size} ${plural(d.legacy.size,'изученное слово','изученных слова','изученных слов')}`;
+   }else{
+     details.textContent=`${showLabel} · Ранее занимались · подробности не сохранились`;
+   }
+   line.append(date,details);
+   return line;
+ },'После первой тренировки здесь появятся результаты.');
  $('history-note').textContent='';
- const schedule=$('schedule-list');schedule.replaceChildren();
  const scheduled=scheduledReviews(state.words.filter(w=>!flagActive(w.id,'mastered')),state.progress);
  const today=localDayKey(Date.now());
  const items=[[today,scheduled.today+scheduled.overdue],...scheduled.dates];
- for(const [key,num] of items){const line=document.createElement('div');line.className='schedule-row';
+ renderDateRows('schedule-list',items,([key,num])=>{
+   const line=document.createElement('div');line.className='schedule-row';
    const left=document.createElement('span');left.textContent=key===today?'Сегодня':niceDate(key);
    const right=document.createElement('strong');right.textContent=`${num} ${plural(num,'слово','слова','слов')}`;
-   line.append(left,right);schedule.append(line);
- }
+   line.append(left,right);
+   return line;
+ });
 }
 function plural(n,one,few,many){const m=Math.abs(n)%100,k=m%10;return m>=11&&m<=14?many:k===1?one:k>=2&&k<=4?few:many;}
 $('review-mode').onchange=()=>{state.reviewMode=$('review-mode').value;saveLocal();saveProfile();beginNew();};
@@ -405,8 +508,13 @@ function authorizeGoogle(){if(!cfg.googleOAuthClientId){note('sheet-message','В
 }
 $('google-sheet-auth').onclick=authorizeGoogle;
 function download(name,data){const blob=new Blob([data],{type:'application/json;charset=utf-8'});const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),500);}
-$('export-data').onclick=()=>download('slova-progress.json',JSON.stringify({version:1,progress:state.progress,history:state.history,legacy:state.legacy,flags:state.flags,sheet:state.sheet,range:state.range},null,2));
-$('import-data').onchange=async e=>{const f=e.target.files?.[0];if(!f)return;try{const data=JSON.parse(await f.text());if(data.version!==1||typeof data.progress!=='object'||!data.progress||Array.isArray(data.progress))throw new Error('Неподдерживаемый формат.');state.progress=mergeReviewMaps(state.progress,data.progress);state.history=mergeHistoryEvents(state.history,Array.isArray(data.history)?data.history:[]);state.flags=mergeFlagMaps(state.flags,data.flags);state.legacy=data.legacy||recoverLegacyProgress(state.progress,state.history);saveLocal();beginNew();note('import-message','Прогресс импортирован локально.');if(state.user)await syncAll();}catch(err){note('import-message',`Ошибка импорта: ${err.message}`);}e.target.value='';};
+$('export-data').onclick=()=>download('slova-progress.json',JSON.stringify({version:1,progress:state.progress,history:state.history,showCounts:[...showCounts.values()],legacy:state.legacy,flags:state.flags,sheet:state.sheet,range:state.range},null,2));
+$('import-data').onchange=async e=>{const f=e.target.files?.[0];if(!f)return;try{const data=JSON.parse(await f.text());if(data.version!==1||typeof data.progress!=='object'||!data.progress||Array.isArray(data.progress))throw new Error('Неподдерживаемый формат.');state.progress=mergeReviewMaps(state.progress,data.progress);state.history=mergeHistoryEvents(state.history,Array.isArray(data.history)?data.history:[]);state.flags=mergeFlagMaps(state.flags,data.flags);state.legacy=data.legacy||recoverLegacyProgress(state.progress,state.history);if(Array.isArray(data.showCounts)&&data.showCounts.length){
+  showSourceId??=crypto.randomUUID();
+  mergeShowCounts(ownShowCounts,data.showCounts);
+  mergeShowCounts(showCounts,data.showCounts);
+  saveShowCounts(showSourceId,ownShowCounts);
+ }saveLocal();beginNew();note('import-message','Прогресс импортирован локально.');if(state.user)await syncAll();}catch(err){note('import-message',`Ошибка импорта: ${err.message}`);}e.target.value='';};
 // Supabase Auth + REST. Row-level security in schema.sql protects each user's rows.
 async function api(path,options={}) {
   if(!hasBackend)throw new Error('Supabase пока не настроен.');
@@ -425,6 +533,8 @@ async function receiveSession(session){
   clearTimeout(refreshTimer);
   if(session?.expires_at)refreshTimer=setTimeout(()=>refreshSession(),Math.max(30000,session.expires_at*1000-Date.now()-60000));
   if(oldUser!==state.user?.id){
+    needsShowRepair=false;
+    shownStudyCard=null;
     // Changing account must not replace an already loaded cloud snapshot with a tiny cache.
     const current=state.progress,previousHistory=state.history,previousFlags=state.flags;
     loadLocal();
@@ -486,8 +596,9 @@ async function loadCloud({throwOnError=false}={}){
   if(!state.user)return;
   if(cloudLoading){if(throwOnError)throw new Error('Синхронизация уже выполняется.');return;}
   cloudLoading=true;
+  const userId=state.user.id;
   try{
-    const uid=encodeURIComponent(state.user.id);
+    const uid=encodeURIComponent(userId);
     const [rows,events]=await Promise.all([
       readAllRows(api,`/rest/v1/word_progress?user_id=eq.${uid}&select=word_id,state&order=word_id.asc`),
       readAllRows(api,`/rest/v1/review_history?user_id=eq.${uid}&select=event_id,word_id,rating,answered_at,extra&order=answered_at.asc,event_id.asc`)
@@ -514,6 +625,7 @@ async function loadCloud({throwOnError=false}={}){
     saveVerifiedCloud();
     needsCloudRepair=false;
     if(cloudRetryTimer!==null){clearTimeout(cloudRetryTimer);cloudRetryTimer=null;}
+    if(state.user?.id===userId)await syncShowCounts(userId);
     if($('study-notice').textContent.includes('повторная отправка')||$('study-notice').textContent.startsWith('Облачная синхронизация недоступна'))$('study-notice').classList.add('hidden');
   }catch(e){console.warn('Cloud load failed:',e);
     markCloudRepairNeeded(`Облачная синхронизация недоступна: ${e.message}. Локальные ответы сохранены; повторная отправка запланирована.`);
@@ -534,6 +646,36 @@ async function syncEntries(progress,events){
     if(batch.length)await api('/rest/v1/review_history?on_conflict=user_id,event_id',{method:'POST',headers:{Prefer:'resolution=ignore-duplicates'},body:JSON.stringify(batch)});
   }
 }
+async function uploadShowCounts(uid,rows){
+  for(let i=0;i<rows.length&&state.user?.id===uid;i+=100){
+    await api('/rest/v1/rpc/merge_card_show_counts',{
+      method:'POST',body:JSON.stringify({counts:rows.slice(i,i+100)})
+    });
+  }
+}
+function handleShowSyncError(e){
+  console.warn('Card show count sync failed',e);
+  needsShowRepair=true;
+  scheduleCloudRepair();
+}
+async function syncShowCounts(uid){
+  if(!uid)return;
+  try{
+    const rows=await readAllRows(api,`/rest/v1/card_show_counts?user_id=eq.${encodeURIComponent(uid)}&select=day,source_id,count&order=day.asc,source_id.asc`);
+    if(state.user?.id!==uid)return;
+    const remote=mergeShowCounts(new Map(),rows);
+    const suffix='cloud';
+    const cached=mergeShowCounts(new Map(),readShowCounts(localStorage.getItem(showStoragePrefix()+suffix)));
+    mergeShowCounts(cached,rows);
+    saveShowCounts(suffix,cached);
+    mergeShowCounts(showCounts,cached.values());
+    refreshShowStats();
+    const pending=[...showCounts.values()].filter(row=>row.count>(remote.get(showCountKey(row))?.count||0));
+    // Failed uploads remain in local storage. Absolute counters are safe to retry.
+    needsShowRepair=false;
+    await uploadShowCounts(uid,pending);
+  }catch(e){if(state.user?.id===uid)handleShowSyncError(e);}
+}
 async function saveProfile(){} // Google Sheet remains configured locally per device.
 async function syncProgress(id){
   if(!state.user)return;
@@ -548,6 +690,10 @@ async function syncAll(){
 }
 async function init(){loadLocal();renderSettings();if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js').catch(console.warn);
 
-  if(hasBackend)await restoreAuth();updateFlagCounts();if(state.sheet&&state.source!=='sheet')await refreshSheet();setStudyMode('repeat');
+  if(hasBackend)await restoreAuth();
+  updateFlagCounts();
+  if(state.sheet&&state.source!=='sheet')await refreshSheet();
+  if(state.studyMode==='repeat')renderStudy();
+  else setStudyMode('repeat');
 }
 init();
